@@ -189,10 +189,10 @@ Fill in your Hubitat connection:
 - **App ID**: the number after `/apps/api/` in your Maker API URL
 - **Access Token**: shown on the Maker API page in Hubitat under **URLs**
 
-Click **Test & Load Devices** — if successful it shows your device count. Then:
+Click **Save to Browser & Test** — this saves your credentials to browser localStorage and verifies the connection. If successful it shows your device count. Then:
 
-- Click **Save to KV** to persist your config server-side and sync across devices (recommended)
-- Or click **Done** to keep everything in browser localStorage only
+- Click **Save Config to KV** to persist tile layout and settings server-side and sync across devices (recommended — hub token is never included)
+- Or click **Close** to keep everything in browser localStorage only
 
 ---
 

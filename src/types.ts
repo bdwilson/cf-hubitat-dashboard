@@ -13,6 +13,12 @@ export interface Env {
   ASSETS: Fetcher;
   /** Optional override for the email used in local dev */
   DEV_USER_EMAIL?: string;
+  /**
+   * Set to "true" to allow multiple hubs to share one Worker deployment.
+   * Requires Cloudflare Access in front of this Worker — without it, any
+   * caller can read/write any hub's config. Defaults to false (single-hub).
+   */
+  MULTI_HUB?: string;
 }
 
 /** Hub connection details — stored server-side in KV. */

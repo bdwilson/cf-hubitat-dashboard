@@ -16,13 +16,14 @@ The dashboard is a single static HTML file (`src/assets/index.html`) served by t
    iPad,                                               │
    desktop)                                            │
                                                        ├─► KV (CONFIG)
-                                                       │     - hub-connection:        {baseUrl, appId, token}
-                                                       │     - dashboard-config:      {title, pollSec, slots, layout, gridCols, tileH}
-                                                       │     - dynamic-config:        {hidden, order, overrides}
-                                                       │     - custom-dashboards:     Record<string, CustomDashboard>
-                                                       │     - dashboards-visible:    Record<string, boolean>
-                                                       │     - dashboards-order:      string[]
-                                                       │     - status-bar-presence-devices: Record<string, unknown>
+                                                       │     - registered-hub-id      (singleton — no prefix)
+                                                       │     - {hubId}:hub-connection        {baseUrl, appId, token}
+                                                       │     - {hubId}:dashboard-config      {title, pollSec, slots, layout, gridCols, tileH}
+                                                       │     - {hubId}:dynamic-config        {hidden, order, overrides}
+                                                       │     - {hubId}:custom-dashboards     Record<string, CustomDashboard>
+                                                       │     - {hubId}:dashboards-visible    Record<string, boolean>
+                                                       │     - {hubId}:dashboards-order      string[]
+                                                       │     - {hubId}:status-bar-presence-devices: Record<string, unknown>
                                                        │
                                                        └─► Hubitat hub  (via Cloud Maker API or
                                                             Cloudflare Tunnel — configurable)
@@ -85,17 +86,28 @@ Browser calls `/api/hub/devices/all`. Worker rewrites to `${baseUrl}/apps/api/${
 For Hubitat Cloud Maker API the base URL is `https://cloud.hubitat.com/api/{hub-uid}`. The app path becomes `/apps/{app_id}` (no `/api`). For local LAN via Tunnel it's the hub IP. Both are handled by `buildHubUrl()` in `hub-proxy.ts`.
 
 ### KV keys
+
+All config keys are prefixed with the hub ID (`{hubId}:key`). The hub ID is
+extracted from the cloud base URL (the hub UID segment) or a browser-generated
+UUID for LAN/tunnel users — sent as the `X-Hub-Id` request header. One
+singleton key is unprefixed:
+
 | Key | Contents |
 |-----|----------|
-| `hub-connection` | `{baseUrl, appId, token, isCloud?}` — server-side only |
-| `dashboard-config` | `{title, pollSec, slots, layout?, gridCols?, tileH?}` — safe to expose |
-| `dynamic-config` | `{hidden, order?, overrides?}` — hide/show and device-kind overrides |
-| `custom-dashboards` | `Record<string, CustomDashboard>` |
-| `dashboards-visible` | `Record<string, boolean>` — nav chip visibility |
-| `dashboards-order` | `string[]` — nav chip ordering |
-| `status-bar-presence-devices` | presence device IDs for status bar |
+| `registered-hub-id` | Hub UID locked in single-hub mode (no prefix) |
+| `{hubId}:hub-connection` | `{baseUrl, appId, token, isCloud?}` — server-side only |
+| `{hubId}:dashboard-config` | `{title, pollSec, slots, layout?, gridCols?, tileH?}` — safe to expose |
+| `{hubId}:dynamic-config` | `{hidden, order?, overrides?}` — hide/show and device-kind overrides |
+| `{hubId}:custom-dashboards` | `Record<string, CustomDashboard>` |
+| `{hubId}:dashboards-visible` | `Record<string, boolean>` — nav chip visibility |
+| `{hubId}:dashboards-order` | `string[]` — nav chip ordering |
+| `{hubId}:status-bar-presence-devices` | presence device IDs for status bar |
 
-Keys are flat strings. Don't add namespacing prefixes — breaks existing data.
+**Migration from flat keys**: on first access after deploying, each `load*`
+function checks the prefixed key and, if absent, reads the legacy flat key and
+migrates it automatically. No manual step required.
+
+**Never rename the `registered-hub-id` key or the `{hubId}:` prefix scheme.**
 
 ### Dynamic dashboards
 Auto-generated from Hubitat device capabilities. Seven groups:
@@ -155,10 +167,12 @@ npm install
 npm run dev          # → http://localhost:8787, uses .dev.vars
 npm run deploy       # deploy to Cloudflare
 npx wrangler tail    # tail production logs
-npx wrangler kv key get hub-connection --binding=CONFIG
-npx wrangler kv key get dashboard-config --binding=CONFIG
-npx wrangler kv key get dynamic-config --binding=CONFIG
-npx wrangler kv key get custom-dashboards --binding=CONFIG
+# KV keys are now prefixed by hub ID — substitute {HUB-UID} with the actual UID
+npx wrangler kv key get "{HUB-UID}:hub-connection" --binding=CONFIG
+npx wrangler kv key get "{HUB-UID}:dashboard-config" --binding=CONFIG
+npx wrangler kv key get "{HUB-UID}:dynamic-config" --binding=CONFIG
+npx wrangler kv key get "{HUB-UID}:custom-dashboards" --binding=CONFIG
+npx wrangler kv key get registered-hub-id --binding=CONFIG
 ```
 
 ## Dev workflow

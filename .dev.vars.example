@@ -1,0 +1,6 @@
+# Local development secrets — copy this file to `.dev.vars` and fill in.
+# .dev.vars is gitignored. Do NOT commit it.
+# For production, secrets live in KV (see CLAUDE.md).
+
+# Optional: override the CF Access email check during local dev
+DEV_USER_EMAIL=you@example.com

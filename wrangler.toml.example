@@ -17,6 +17,13 @@ binding = "CONFIG"
 id = "YOUR_KV_NAMESPACE_ID"
 preview_id = "YOUR_KV_PREVIEW_NAMESPACE_ID"
 
+# Runtime variables
+[vars]
+# Set to "true" only if you want multiple hubs to share this Worker.
+# Requires Cloudflare Access in front of the Worker — without it, any
+# caller can read/write any hub's config. Leave "false" for personal use.
+MULTI_HUB = "false"
+
 # Observability
 [observability]
 enabled = true
