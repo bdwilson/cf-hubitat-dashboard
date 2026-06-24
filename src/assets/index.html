@@ -566,7 +566,7 @@
   <div class="modal-card">
     <h2>Dashboard Settings</h2>
     <div class="help">
-      Configuration is stored in Cloudflare KV and synced across all devices. The hub access token is kept server-side.
+      Hub credentials (token) are saved to <strong>this browser only</strong> — never sent to Cloudflare KV. Dashboard config (tiles, layout, visibility) can be saved to KV for cross-device sync via <strong>Save Config to KV</strong> below.
     </div>
     <h3>Hub Connection</h3>
     <div class="form-row">
@@ -581,8 +581,9 @@
       <label>Access Token <span id="token-status" style="font-size:11px;margin-left:6px;color:var(--tile-label)"></span></label>
       <input id="cfg-token" type="password" placeholder="Leave blank to keep existing token" />
       <label style="margin-top:4px; font-size:12px">
-        <input type="checkbox" id="show-token-cb" /> Show value (fetches from server)
+        <input type="checkbox" id="show-token-cb" /> Show value
       </label>
+      <div class="help" style="margin-top:4px; font-size:11px">Saved to this browser only — never sent to Cloudflare KV.</div>
     </div>
     <div class="form-row">
       <label><input type="checkbox" id="cfg-is-cloud" /> This is a Hubitat Cloud URL (auto-detected if blank)</label>
@@ -617,9 +618,16 @@
     </div>
     <div class="btn-row">
       <button class="btn" id="test-conn">Test &amp; Load Devices</button>
-      <button class="btn" id="save-cfg">💾 Save to KV</button>
-      <button class="btn secondary" id="close-settings">Done</button>
-      <button class="btn danger" id="reset-cfg">Reset</button>
+      <button class="btn" id="save-cfg">☁ Save Config to KV</button>
+      <button class="btn secondary" id="close-settings">Close</button>
+    </div>
+    <div class="help" style="margin-top:6px; font-size:11px">
+      <strong>Save Config to KV</strong> — syncs tile layout, labels, and visibility to all devices. Hub token is <em>never</em> included.
+      <strong>Close</strong> — saves everything to this browser only.
+    </div>
+    <div class="btn-row" style="margin-top:10px">
+      <button class="btn danger" id="reset-cfg">⚠ Reset Everything</button>
+      <span style="font-size:11px; color:var(--tile-label); align-self:center">Wipes all config from KV and browser — cannot be undone.</span>
     </div>
     <div id="conn-status"></div>
 
@@ -652,8 +660,9 @@
       <button class="btn sm secondary" id="reset-dashboards">Reset to Default</button>
     </div>
 
-    <h3>Backup &amp; Restore</h3>
-    <div class="btn-row" style="margin-top:0">
+    <h3>Local Backup &amp; Restore</h3>
+    <div class="help">Download or paste your config as JSON. These operations work on your browser's copy — use <strong>Save to KV</strong> above to push a restored config to all devices.</div>
+    <div class="btn-row" style="margin-top:8px">
       <button class="btn secondary" id="export-cfg">⬇ Download Config</button>
       <button class="btn secondary" id="import-cfg-btn">⬆ Upload Config</button>
       <input type="file" id="import-cfg-file" accept="application/json,.json" style="display:none" />
@@ -1190,8 +1199,17 @@ function hubPath(path) {
 }
 async function api(path) {
   const fullUrl = hubPath(path);
+  // Pass hub credentials as headers (browser/hybrid mode).
+  // Worker checks these first; falls back to KV if absent (full-KV mode).
+  const headers = {};
+  if (cfg.hubToken) {
+    headers['X-Hub-Token']    = cfg.hubToken;
+    headers['X-Hub-Base-Url'] = cfg.hubBaseUrl;
+    headers['X-Hub-App-Id']   = cfg.hubAppId;
+    headers['X-Hub-Is-Cloud'] = cfg.hubIsCloud ? '1' : '0';
+  }
   let r;
-  try { r = await fetch(fullUrl, { credentials: 'same-origin' }); }
+  try { r = await fetch(fullUrl, { credentials: 'same-origin', headers }); }
   catch (netErr) { throw new Error(`Network error fetching ${fullUrl} — ${netErr.message}`); }
   if (!r.ok) {
     const body = await r.text().catch(() => '');
@@ -3437,7 +3455,7 @@ document.getElementById('te-delete').addEventListener('click', () => {
 // ── Polling and device refresh ────────────────────────────────────────────────
 
 async function refreshDevices() {
-  if (!cfg.hubBaseUrl || !cfg.hubAppId || !cfg.hubHasToken) {
+  if (!cfg.hubBaseUrl || !cfg.hubAppId || (!cfg.hubToken && !cfg.hubHasToken)) {
     return { ok: false, error: 'Hub connection not configured. Open settings.' };
   }
   try {
@@ -3597,10 +3615,14 @@ function openSettings() {
   document.getElementById('cfg-url').value   = cfg.hubBaseUrl || '';
   document.getElementById('cfg-app').value   = cfg.hubAppId  || '';
   document.getElementById('cfg-token').value = '';
-  document.getElementById('cfg-token').placeholder = cfg.hubHasToken
-    ? '••• existing token in KV; leave blank to keep'
+  document.getElementById('cfg-token').placeholder = cfg.hubToken
+    ? '••• token saved in browser; re-enter to update'
+    : cfg.hubHasToken ? '••• token in KV (legacy); re-enter to move to browser'
     : 'paste Maker API access token';
-  document.getElementById('token-status').textContent   = cfg.hubHasToken ? '✓ stored' : '⚠ not set';
+  document.getElementById('token-status').textContent = cfg.hubToken
+    ? '✓ in browser'
+    : cfg.hubHasToken ? '✓ in KV'
+    : '⚠ not set';
   document.getElementById('show-token-cb').checked      = false;
   document.getElementById('cfg-is-cloud').checked       = !!cfg.hubIsCloud;
   document.getElementById('cfg-poll').value             = cfg.pollSec;
@@ -3627,6 +3649,7 @@ document.getElementById('save-cfg').addEventListener('click', async () => {
   setStatus('Saving to KV…', '');
   try {
     const payload = {
+      // Hub URL/appId saved to KV for WebSocket and reference — token intentionally excluded
       hub: { baseUrl: cfg.hubBaseUrl, appId: cfg.hubAppId, isCloud: cfg.hubIsCloud },
       dashboard: {
         title: cfg.title, pollSec: cfg.pollSec,
@@ -3634,7 +3657,6 @@ document.getElementById('save-cfg').addEventListener('click', async () => {
         gridCols: cfg.gridCols, tileH: cfg.tileH,
       },
     };
-    if (cfg.hubToken) payload.hub.token = cfg.hubToken;
     if (Object.keys(dynamicHidden).length || Object.keys(dynamicOrder).length || Object.keys(dynamicOverrides).length) {
       payload.dynamic = { hidden: dynamicHidden, order: dynamicOrder,
         overrides: Object.keys(dynamicOverrides).length ? dynamicOverrides : undefined };
@@ -3696,19 +3718,14 @@ document.getElementById('reset-cfg').addEventListener('click', async () => {
 
 document.getElementById('test-conn').addEventListener('click', async () => {
   readSettingsForm();
-  setStatus('Saving and testing…', '');
-  try {
-    const payload = { hub: { baseUrl: cfg.hubBaseUrl, appId: cfg.hubAppId, isCloud: cfg.hubIsCloud } };
-    if (cfg.hubToken) payload.hub.token = cfg.hubToken;
-    await pushConfigToWorker(payload);
-  } catch (e) { setStatus(`✗ Could not save hub creds: ${e.message}`, 'err'); return; }
+  setStatus('Testing connection…', '');
   const r = await refreshDevices();
   if (r.ok) {
     const imgCount = devices.filter(isImageDevice).length;
     setStatus(`✓ Connected. ${devices.length} devices (${imgCount} image device${imgCount===1?'':'s'}).`, 'ok');
+    saveConfigCache(); // persist token to browser localStorage
     renderAll();
     refreshPresencePickerList();
-    // Try WebSocket now that creds are confirmed
     if (ws) { ws.close(); ws = null; }
     connectWebSocket();
   } else {
@@ -3719,13 +3736,20 @@ document.getElementById('test-conn').addEventListener('click', async () => {
 document.getElementById('show-token-cb').addEventListener('change', async e => {
   const tf = document.getElementById('cfg-token');
   if (e.target.checked) {
-    try {
-      const full = await fetchConfigFromWorker(true);
+    if (cfg.hubToken) {
+      // Token is in browser — show it directly, no server round-trip needed
       tf.type  = 'text';
-      tf.value = (full.hub && full.hub.token) || '';
-    } catch (err) {
-      setStatus(`Could not fetch token: ${err.message}`, 'err');
-      e.target.checked = false;
+      tf.value = cfg.hubToken;
+    } else {
+      // Fall back to KV fetch (legacy full-KV mode)
+      try {
+        const full = await fetchConfigFromWorker(true);
+        tf.type  = 'text';
+        tf.value = (full.hub && full.hub.token) || '';
+      } catch (err) {
+        setStatus(`Could not fetch token: ${err.message}`, 'err');
+        e.target.checked = false;
+      }
     }
   } else {
     tf.type  = 'password';
@@ -3987,7 +4011,7 @@ async function boot() {
     console.warn('Could not load config from Worker, using cache:', e.message);
   }
 
-  if (!cfg.hubBaseUrl || !cfg.hubAppId || !cfg.hubHasToken) {
+  if (!cfg.hubBaseUrl || !cfg.hubAppId || (!cfg.hubToken && !cfg.hubHasToken)) {
     openSettings();
   } else {
     await refreshDevices();

@@ -1,0 +1,26 @@
+name: Deploy to Cloudflare Workers
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate wrangler.toml from secrets
+        run: |
+          sed \
+            -e 's/YOUR_CLOUDFLARE_ACCOUNT_ID/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/g' \
+            -e 's/YOUR_KV_NAMESPACE_ID/${{ secrets.KV_NAMESPACE_ID }}/g' \
+            -e 's/YOUR_KV_PREVIEW_NAMESPACE_ID/${{ secrets.KV_PREVIEW_NAMESPACE_ID }}/g' \
+            wrangler.toml.example > wrangler.toml
+
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}

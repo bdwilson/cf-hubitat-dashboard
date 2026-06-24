@@ -198,7 +198,7 @@ npx wrangler kv key get custom-dashboards --binding=CONFIG
 ## Open questions / future work
 
 - [ ] Image proxy route so remote cameras work behind CF Access (`/api/image-proxy?url=...`)
-- [ ] WebSocket eventstream from hub for real-time updates (currently polling every 5s) — this is the main benefit Cloudflare Tunnel would unlock; cloud Maker API does not support WebSocket
+- [ ] WebSocket via Cloudflare Tunnel for real-time updates — cloud Maker API does not support WebSocket; LAN/tunnel hub URLs do expose `/eventsocket`. Currently WebSocket proxy requires hub base URL in KV (`hub-connection` key) because the browser WebSocket API cannot send custom headers on the upgrade request. Options to explore: (a) pass hub URL as a query param on the upgrade request so browser-mode users don't need KV, (b) pre-auth handshake that issues a short-lived token, (c) if worker runs on local LAN it may be able to reach hub IP directly without Tunnel
 - [ ] Per-user config isolation (key KV by CF-Access user email)
 - [ ] Backup/snapshot of KV to git (scheduled GitHub Action)
 

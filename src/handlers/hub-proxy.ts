@@ -6,11 +6,20 @@
  *   Cloud:  {baseUrl}/apps/{appId}/devices/all?access_token={token}
  *   LAN:    {baseUrl}/apps/api/{appId}/devices/all?access_token={token}
  *
- * The token is server-side. It never appears in the browser's network tab.
+ * Credential resolution order (most-to-least preferred):
+ *   1. X-Hub-Token / X-Hub-Base-Url / X-Hub-App-Id request headers
+ *      → "hybrid" or "full browser" mode: token lives in browser localStorage,
+ *        sent per-request over HTTPS, never stored server-side.
+ *   2. KV hub-connection key
+ *      → "full KV" mode (legacy default): token stored server-side in KV.
  *
  * WebSocket proxy: GET /api/hub/events with Upgrade: websocket header
+ *   Uses KV-based auth only (browser WebSocket API cannot set custom headers).
  *   Proxies to ws://{hub}/eventsocket (LAN/tunnel only; cloud falls back to
  *   polling — the cloud API does not expose a WebSocket event stream).
+ *
+ * TODO: WebSocket via Cloudflare Tunnel — explore passing hub URL as a query
+ *   param so browser-mode users can also get real-time events without KV.
  */
 
 import { loadHubConnection } from './config';
@@ -19,7 +28,7 @@ import type { Env, HubConnection } from '../types';
 export async function handleHubProxy(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
 
-  // WebSocket upgrade: /api/hub/events
+  // WebSocket upgrade: /api/hub/events — KV-based auth only for now
   if (
     url.pathname === '/api/hub/events' &&
     req.headers.get('Upgrade')?.toLowerCase() === 'websocket'
@@ -27,10 +36,12 @@ export async function handleHubProxy(req: Request, env: Env): Promise<Response> 
     return handleWebSocketProxy(req, env);
   }
 
-  const hub = await loadHubConnection(env);
+  // Resolve hub connection: headers first (browser/hybrid mode), then KV (full-KV mode)
+  const hub = resolveHubConnection(req) ?? await loadHubConnection(env);
+
   if (!hub.baseUrl || !hub.appId || !hub.token) {
     return jsonError(
-      'Hub connection not configured. Open dashboard settings and save hub credentials first.',
+      'Hub connection not configured. Open dashboard settings and enter your hub credentials.',
       503,
     );
   }
@@ -74,44 +85,58 @@ export async function handleHubProxy(req: Request, env: Env): Promise<Response> 
 }
 
 /**
+ * Read hub credentials from request headers (browser/hybrid mode).
+ * Returns null if the required headers are absent, so the caller can fall back to KV.
+ */
+function resolveHubConnection(req: Request): HubConnection | null {
+  const token   = req.headers.get('X-Hub-Token');
+  const baseUrl = req.headers.get('X-Hub-Base-Url');
+  const appId   = req.headers.get('X-Hub-App-Id');
+  if (!token || !baseUrl || !appId) return null;
+  const isCloudHeader = req.headers.get('X-Hub-Is-Cloud');
+  const isCloud = isCloudHeader !== null
+    ? isCloudHeader === '1'
+    : baseUrl.includes('cloud.hubitat.com');
+  return { token, baseUrl, appId, isCloud };
+}
+
+/**
  * WebSocket proxy: browser <-> Worker <-> hub eventsocket.
  *
  * Only works for LAN/tunnel hub URLs. The Hubitat Cloud API does not expose
- * a WebSocket event stream. Returns 501 for cloud URLs so the browser knows
- * to fall back to polling.
+ * a WebSocket event stream. Returns 501 for cloud URLs so the browser falls
+ * back to polling.
  *
- * Hub eventsocket: ws://{hub}/eventsocket — broadcasts all device events,
- * no authentication required when the hub is on the same network (or reachable
- * via a Cloudflare Tunnel that handles auth).
+ * Uses KV-based auth only — the browser WebSocket API cannot set custom
+ * request headers on the upgrade request.
+ *
+ * Hub eventsocket: ws://{hub}/eventsocket — no authentication required on LAN.
  */
 async function handleWebSocketProxy(_req: Request, env: Env): Promise<Response> {
   const hub = await loadHubConnection(env);
 
-  if (!hub.baseUrl || !hub.token) {
-    return new Response('Hub not configured', { status: 503 });
+  if (!hub.baseUrl) {
+    return new Response(
+      'Hub base URL not configured in KV. WebSocket requires hub URL saved to KV (Settings → Save Config to KV).',
+      { status: 503 },
+    );
   }
 
   const isCloud = hub.isCloud ?? hub.baseUrl.includes('cloud.hubitat.com');
   if (isCloud) {
-    // Cloud API has no WebSocket endpoint — browser should fall back to polling.
     return new Response(
       'WebSocket events not available for Hubitat Cloud URLs; the dashboard will use polling instead.',
       { status: 501 },
     );
   }
 
-  // Build the upstream hub WebSocket URL.
-  // Hubitat's eventsocket is at ws://{host}/eventsocket (no auth required on LAN).
-  // If using a Cloudflare Tunnel the base URL is already https://, so swap to wss://.
   const wsBase = hub.baseUrl.replace(/^https/, 'wss').replace(/^http(?!s)/, 'ws');
   const hubWsUrl = `${wsBase.replace(/\/+$/, '')}/eventsocket`;
 
-  // Create the client-facing WebSocket pair.
   const pair = new WebSocketPair();
   const [client, server] = [pair[0], pair[1]];
   server.accept();
 
-  // Connect to the hub's eventsocket.
   let hubWs: WebSocket;
   try {
     hubWs = new WebSocket(hubWsUrl);
@@ -120,7 +145,6 @@ async function handleWebSocketProxy(_req: Request, env: Env): Promise<Response> 
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  // Bridge messages in both directions.
   hubWs.addEventListener('message', (e: MessageEvent) => {
     try { server.send(e.data as string); } catch { /* server closed */ }
   });

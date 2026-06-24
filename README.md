@@ -5,10 +5,27 @@ Smartly-style replacement dashboard for Hubitat Elevation, hosted on Cloudflare 
 ## What you get
 
 - Single-page dashboard accessible from anywhere (phone, iPad, desktop)
-- Configuration synced across all devices via Cloudflare KV
-- Hub credentials never reach the browser
-- Authentication via Cloudflare Access (Zero Trust)
 - No servers to maintain — runs entirely on Cloudflare's free infrastructure
+- Authentication via Cloudflare Access (Zero Trust)
+- **With Cloudflare KV** (recommended): config and hub credentials stored server-side, synced across all your devices — hub token never lives in the browser
+- **Without KV** (browser-only mode): everything stored in browser localStorage — works fine on a single device, hub token stays in the browser
+
+---
+
+## KV or no KV?
+
+Cloudflare KV is optional but recommended. Here's the difference:
+
+| | With KV (recommended) | Browser-only (no KV) |
+|---|---|---|
+| Config syncs across devices | ✓ | ✗ (per-browser only) |
+| Hub credentials stored | Server-side in KV | Browser localStorage |
+| Hub token visible to browser | Never | Yes (stored locally) |
+| Requires payment method | Yes (free tier, no charge) | No |
+
+**If you just want to try it on one device**, you can skip KV entirely — configure the dashboard, skip "Save to KV", and your settings will persist in your browser. Just know the hub token will be in browser storage and won't follow you to another device or browser.
+
+**If you want cross-device sync and more secure credential handling**, set up KV. Cloudflare Workers are free; KV just requires a payment method on file to enable (you won't be charged for personal-scale usage — 100k reads/day, 1k writes/day, and 1GB storage are all included at no cost).
 
 ---
 
@@ -16,28 +33,26 @@ Smartly-style replacement dashboard for Hubitat Elevation, hosted on Cloudflare 
 
 ### Cloudflare account
 
-You need a free [Cloudflare account](https://dash.cloudflare.com/sign-up). Cloudflare is the platform that hosts the dashboard — think of it as the server, except you never have to manage one.
+You need a free [Cloudflare account](https://dash.cloudflare.com/sign-up). Cloudflare hosts the Worker (the server-side piece) — you never manage a server yourself.
 
-### Cloudflare billing
+### Adding a payment method (only needed for KV)
 
-KV storage (used to persist your dashboard config) requires the **Cloudflare Workers Paid plan ($5/month)**. The free tier does not include KV in production. Personal dashboard usage stays well within the included limits (100k reads/day, 1k writes/day, 1GB storage), so you will not pay more than the base $5/month fee.
-
-Enable billing: Cloudflare dashboard → **Workers & Pages → Plans → Upgrade to Paid**.
+KV requires a payment method on your Cloudflare account, even though personal usage is free. To add one: Cloudflare dashboard → **Workers & Pages → Plans** → add a payment method. You will not be charged for usage within the free tier limits.
 
 ### Hubitat Maker API
 
-The dashboard talks to your hub via the Maker API app. If you haven't set it up yet:
+The dashboard talks to your hub via the Maker API. If you haven't set it up:
 
 1. In Hubitat: go to **Apps → Add Built-in App → Maker API**
 2. Select the devices you want to expose
-3. Enable **Allow Access via Cloud** (simplest option — no local network setup needed)
-4. Save — you'll see a list of URLs. You need the **Cloud Endpoint URL** and the **Access Token** shown on that page.
+3. Enable **Allow Access via Cloud** (simplest — no local network configuration needed)
+4. Save — you'll see a list of URLs. You need the **Cloud Endpoint URL** and the **Access Token** shown on that page
 
 ---
 
 ## Option A: Deploy via GitHub (recommended — no local tools required)
 
-This is the easiest path. You only need a browser, a GitHub account, and a Cloudflare account. No Node, npm, or command-line tools needed on your machine. GitHub's servers do all the build and deploy work for free.
+This is the easiest path. You only need a browser, a GitHub account, and a Cloudflare account. No Node, npm, or command-line tools needed. GitHub's servers do all the build and deploy work for free.
 
 ### Step 1 — Fork this repo on GitHub
 
@@ -49,32 +64,30 @@ You can keep the fork **public** — no sensitive values are ever committed to t
 
 > If you prefer extra privacy (e.g., you want to add personal notes to the code), make it private: **Settings → General → Danger Zone → Change repository visibility → Make private**.
 
-### Step 2 — Enable Cloudflare Workers Paid plan
+### Step 2 — Create your KV namespaces in Cloudflare
 
-If you haven't already: Cloudflare dashboard → **Workers & Pages → Plans → Upgrade to Paid**.
+> Skip this step if you're using browser-only mode (no KV). You can always add KV later.
 
-### Step 3 — Create your KV namespaces in Cloudflare
-
-KV (Key-Value) is Cloudflare's storage system — it holds your dashboard config so it syncs across all your devices. You need two namespaces: one for production and one for previews/testing.
+KV is Cloudflare's key-value storage — it holds your dashboard config so it syncs across all your devices. You need two namespaces: one for production and one for previews/testing.
 
 1. Log in to [dash.cloudflare.com](https://dash.cloudflare.com)
 2. In the left sidebar, click **Workers & Pages**
-3. Click **KV** in the left sidebar (under Workers & Pages)
+3. Click **KV** in the left sidebar
 4. Click **Create namespace**
 5. Name it `hubitat-dashboard-CONFIG` → click **Add**
-6. You'll see the new namespace in the list with an **ID** next to it — copy and save that ID somewhere (e.g. a text file). This is your **production namespace ID**.
+6. The new namespace appears in the list with an **ID** next to it — copy and save that ID. This is your **production namespace ID**
 7. Click **Create namespace** again
 8. Name it `hubitat-dashboard-CONFIG-preview` → click **Add**
-9. Copy and save that **ID** too. This is your **preview namespace ID**.
+9. Copy and save that **ID** too — this is your **preview namespace ID**
 
-### Step 4 — Get your Cloudflare account ID
+### Step 3 — Get your Cloudflare account ID
 
 1. In the Cloudflare dashboard, click **Workers & Pages** in the left sidebar
-2. On the right side of the page you'll see an **Account ID** field — copy it and save it alongside your namespace IDs.
+2. On the right side of the page you'll see an **Account ID** — copy it
 
-### Step 5 — Create a Cloudflare API token
+### Step 4 — Create a Cloudflare API token
 
-This is the credential that allows GitHub to deploy to your Cloudflare account on your behalf. It can be revoked at any time without affecting the dashboard itself.
+This is the credential that lets GitHub deploy to your Cloudflare account on your behalf. It can be revoked at any time without affecting the running dashboard.
 
 1. In the Cloudflare dashboard, click your profile icon (top right) → **My Profile**
 2. Click **API Tokens** in the left sidebar
@@ -82,38 +95,38 @@ This is the credential that allows GitHub to deploy to your Cloudflare account o
 4. Find the **"Edit Cloudflare Workers"** template and click **Use template**
 5. Under **Account Resources**: make sure your account is selected
 6. Under **Zone Resources**: leave as "All zones" (or restrict to a specific zone if you prefer)
-7. Click **Continue to summary** → **Create Token**
-8. **Copy the token now** — it's only shown once. Save it alongside your other values.
+7. Click **Continue to summary → Create Token**
+8. **Copy the token now** — it's only shown once
 
-### Step 6 — Add secrets to your GitHub repo
+### Step 5 — Add secrets to your GitHub repo
 
-GitHub Actions secrets are encrypted values that GitHub injects into your workflow at deploy time. They are never visible in logs or to other users, even on a public repo.
+GitHub Actions secrets are encrypted values that GitHub injects into your deployment workflow. They are never visible in logs or to other users, even on a public repo.
 
 1. Go to your forked repo on GitHub
-2. Click **Settings** (the gear icon in the top repo menu)
+2. Click **Settings** (the gear icon in the repo top menu)
 3. In the left sidebar, click **Secrets and variables → Actions**
-4. Click **New repository secret** and add each of the following four secrets one at a time:
+4. Click **New repository secret** and add each of the following — type the secret name exactly as shown, paste the value, click **Add secret**:
 
-| Secret name | Where to find the value |
-|---|---|
-| `CLOUDFLARE_ACCOUNT_ID` | Copied in Step 4 |
-| `CLOUDFLARE_API_TOKEN` | Copied in Step 5 |
-| `KV_NAMESPACE_ID` | Production namespace ID from Step 3 |
-| `KV_PREVIEW_NAMESPACE_ID` | Preview namespace ID from Step 3 |
+| Secret name | Value | Where to find it |
+|---|---|---|
+| `CLOUDFLARE_ACCOUNT_ID` | Your account ID | Step 3 |
+| `CLOUDFLARE_API_TOKEN` | Your API token | Step 4 |
+| `KV_NAMESPACE_ID` | Production namespace ID | Step 2 |
+| `KV_PREVIEW_NAMESPACE_ID` | Preview namespace ID | Step 2 |
 
-For each one: type the **Secret name** exactly as shown, paste the value, click **Add secret**.
+> **Browser-only mode**: if you skipped KV setup, you still need `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. For `KV_NAMESPACE_ID` and `KV_PREVIEW_NAMESPACE_ID`, enter placeholder values like `none` — the deploy will succeed but KV won't be used. In this case, all config stays in your browser.
 
-### Step 7 — Deploy
+### Step 6 — Deploy
 
 1. In your forked repo, click the **Actions** tab
 2. Click **Deploy to Cloudflare Workers** in the left sidebar
 3. Click **Run workflow → Run workflow**
-4. Wait about 30 seconds for it to complete — a green checkmark means success
+4. Wait about 30 seconds — a green checkmark means success
 5. Click into the completed run → click the **Deploy** job → expand the **Deploy** step to find your Worker URL
 
 It will look like: `https://hubitat-dashboard.YOUR-SUBDOMAIN.workers.dev`
 
-From now on, every push to `main` automatically redeploys. No manual steps needed for updates.
+From now on, every push to `main` automatically redeploys.
 
 ---
 
@@ -137,7 +150,7 @@ npx wrangler login
 cp wrangler.toml.example wrangler.toml
 ```
 
-Edit `wrangler.toml` — fill in your `account_id` and KV namespace IDs (see Steps 3 and 4 above for how to find these).
+Edit `wrangler.toml` — fill in your `account_id` and KV namespace IDs (see Steps 2 and 3 above for how to find these).
 
 ### Create the KV namespaces via CLI
 
@@ -165,7 +178,7 @@ Wrangler prints your Worker URL, e.g. `https://hubitat-dashboard.your-subdomain.
 
 ---
 
-## First-run dashboard config (both options)
+## First-run dashboard config
 
 Open your Worker URL in a browser. The settings panel opens automatically since no hub is configured yet.
 
@@ -176,21 +189,24 @@ Fill in your Hubitat connection:
 - **App ID**: the number after `/apps/api/` in your Maker API URL
 - **Access Token**: shown on the Maker API page in Hubitat under **URLs**
 
-Click **Test & Load Devices** — if successful it shows your device count. Then click **Save to KV** to persist your config across all devices.
+Click **Test & Load Devices** — if successful it shows your device count. Then:
+
+- Click **Save to KV** to persist your config server-side and sync across devices (recommended)
+- Or click **Done** to keep everything in browser localStorage only
 
 ---
 
 ## Lock it down with Cloudflare Access (strongly recommended)
 
-Without this, anyone who knows your Worker URL can see your dashboard. Cloudflare Access puts a login gate in front of it — only the email addresses you allow can get through, and authentication is handled entirely by Cloudflare (no passwords stored anywhere).
+Without this, anyone who knows your Worker URL can see your dashboard. Cloudflare Access puts a login gate in front of it — only the email addresses you allow can get through.
 
 1. In the Cloudflare dashboard, go to **Zero Trust** (left sidebar)
-   - If prompted, create a Zero Trust organization name (any name works — it's just a label)
+   - If prompted, create a Zero Trust organization name (any name works)
 2. Go to **Access → Applications → Add an application**
 3. Choose **Self-hosted**
 4. Fill in:
-   - **Application name**: `Hubitat Dashboard` (or anything you like)
-   - **Session duration**: how long before it asks you to log in again (e.g. `1 month`)
+   - **Application name**: `Hubitat Dashboard`
+   - **Session duration**: how long before re-authentication is required (e.g. `1 month`)
    - **Application domain**: your Worker URL without `https://` (e.g. `hubitat-dashboard.your-subdomain.workers.dev`)
 5. Click **Next**
 6. Create a policy:
@@ -199,7 +215,7 @@ Without this, anyone who knows your Worker URL can see your dashboard. Cloudflar
    - Under **Configure rules → Include**: set Selector to `Emails` and enter your email address
 7. Click **Next → Add application**
 
-Now visiting your Worker URL will redirect to a Cloudflare login page first. After authenticating with your email (via a one-time code), you're in.
+Visiting your Worker URL will now redirect to a Cloudflare login page. After authenticating with your email (via a one-time code), you're in.
 
 ---
 
@@ -235,7 +251,7 @@ If you want to use a Tunnel anyway (e.g., to avoid Hubitat Cloud rate limits or 
 - **Upload Config File**: restores from a JSON backup
 - **Copy / Paste**: quick transfer between devices via clipboard
 
-KV is the source of truth. Browser localStorage is only used as a short-term cache.
+KV is the source of truth when configured. Browser localStorage is used as a short-term cache.
 
 ---
 

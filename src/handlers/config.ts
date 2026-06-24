@@ -72,7 +72,7 @@ const DEFAULT_SLOTS: Record<string, SlotConfig> = {
 };
 
 const DEFAULT_DASHBOARD: DashboardConfig = {
-  title: 'Security',
+  title: 'Home',
   pollSec: 5,
   slots: DEFAULT_SLOTS,
 };
