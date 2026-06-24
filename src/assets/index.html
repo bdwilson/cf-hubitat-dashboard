@@ -1,0 +1,4007 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Hubitat Dashboard</title>
+<style>
+  :root {
+    --bg: #000;
+    --tile-bg: #1a1a1a;
+    --tile-border: #2a2a2a;
+    --tile-text: #d4d4d4;
+    --tile-label: #9a9a9a;
+    --active: #2dbf64;
+    --active-text: #0a0a0a;
+    --alert: #d83a3a;
+    --info: #2d7fbf;
+    --warn: #e8a93a;
+    --disabled-bg: #e8e8e8;
+    --disabled-text: #1a1a1a;
+    --gap: 6px;
+    --radius: 4px;
+    --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --grid-cols: 3;
+    --row-h: 80px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg);
+    color: var(--tile-text);
+    font-family: var(--font-stack);
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+  }
+  body { padding: var(--gap); min-height: 100vh; }
+
+  /* ── Status bar ── */
+  #status-bar {
+    display: flex; align-items: center; flex-wrap: wrap;
+    gap: 6px; padding: 4px 2px 8px;
+    min-height: 32px;
+  }
+  .status-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+    background: #1e1e1e; color: var(--tile-label);
+    border: 1px solid #2a2a2a;
+  }
+  .status-chip .chip-dot {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  }
+  .status-chip.hsm-disarmed { background: rgba(45,191,100,0.12); color: var(--active); border-color: rgba(45,191,100,0.25); }
+  .status-chip.hsm-armed    { background: rgba(216,58,58,0.15);  color: var(--alert);  border-color: rgba(216,58,58,0.3); }
+  .status-chip.hsm-armed .chip-dot   { background: var(--alert); }
+  .status-chip.hsm-disarmed .chip-dot { background: var(--active); }
+  .status-chip.presence-home { color: var(--active); border-color: rgba(45,191,100,0.2); }
+  .status-chip.presence-away { color: #666; }
+  .status-chip.presence-home .chip-dot { background: var(--active); }
+  .status-chip.presence-away .chip-dot { background: #444; }
+  .status-chip.mode-chip { color: #b0b0ff; border-color: rgba(100,100,220,0.2); }
+  /* Clickable status chips */
+  .status-chip[data-action] { cursor: pointer; }
+  .status-chip[data-action]:hover { filter: brightness(1.2); }
+
+  /* ── Top bar ── */
+  .topbar { display: flex; align-items: center; gap: 8px; padding: 4px 2px 8px; flex-wrap: wrap; }
+  .topbar h1 { font-size: 20px; font-weight: 500; letter-spacing: 0.3px; }
+  .home-icon {
+    width: 20px; height: 20px;
+    border: 1.5px solid var(--tile-text);
+    border-bottom: none;
+    border-radius: 50% 50% 0 0 / 80% 80% 0 0;
+    position: relative; margin-left: 2px; flex-shrink: 0;
+  }
+  .home-icon::before {
+    content: ""; position: absolute;
+    bottom: -4px; left: -2px; right: -2px;
+    height: 4px; background: var(--bg);
+    border-top: 1.5px solid var(--tile-text);
+  }
+  .spacer { flex: 1; }
+  .icon-btn {
+    background: none; border: none; color: var(--tile-label);
+    font-size: 18px; cursor: pointer; padding: 4px 8px;
+  }
+  .icon-btn:hover { color: var(--tile-text); }
+  .conn-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--alert); display: inline-block; flex-shrink: 0;
+  }
+  .conn-dot.ok { background: var(--active); }
+  .ws-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: transparent; border: 1.5px solid #444;
+    display: inline-block; flex-shrink: 0; title: "WebSocket";
+  }
+  .ws-dot.live { background: #2d7fbf; border-color: #2d7fbf; }
+  .edit-mode-toggle {
+    background: #1a1a1a; border: 1px solid #333;
+    color: var(--tile-label); padding: 4px 10px;
+    font-size: 11px; border-radius: 3px;
+    cursor: pointer; letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .edit-mode-toggle.on { background: var(--info); color: #fff; border-color: var(--info); }
+
+  /* ── Dashboard nav ── */
+  #dash-nav {
+    display: none; align-items: flex-start; gap: 6px;
+    padding: 0 2px 8px; flex-wrap: wrap;
+  }
+  #dash-nav.visible { display: flex; }
+  .nav-chip {
+    padding: 4px 12px; border-radius: 14px;
+    font-size: 12px; cursor: pointer;
+    background: #1a1a1a; border: 1px solid #2a2a2a;
+    color: var(--tile-label); flex-shrink: 1;
+  }
+  /* Mobile: smaller chips to fit more without wrapping */
+  @media (max-width: 500px) {
+    .nav-chip {
+      padding: 2px 8px;
+      font-size: 11px;
+    }
+  }
+  .nav-chip.active { background: var(--info); color: #fff; border-color: var(--info); }
+  .nav-chip.dynamic { border-color: #2a3d2a; color: #5a9a5a; }
+  .nav-chip.dynamic.active { background: #2d6f2d; color: #fff; border-color: #2d6f2d; }
+  .nav-chip.custom { border-color: #3d2a3d; color: #9a5a9a; }
+  .nav-chip.custom.active { background: #6f2d6f; color: #fff; border-color: #6f2d6f; }
+
+  /* ── Layout containers ── */
+  /*
+   * Internally the section grid uses 2× the user-facing column count.
+   * This lets us support half-width tiles (colSpan=0.5 → span 1 CSS unit)
+   * without fractional grid columns.
+   *   1 user col  = span 2 CSS units (default)
+   *   ½ user col  = span 1 CSS unit
+   *   2 user cols = span 4 CSS units
+   *   3 user cols = span 6 CSS units
+   */
+  .section {
+    display: grid;
+    grid-template-columns: repeat(calc(var(--grid-cols, 3) * 2), 1fr);
+    grid-auto-rows: var(--row-h, 80px);
+    grid-auto-flow: dense;
+    gap: var(--gap); margin-bottom: var(--gap);
+  }
+  /* Default: every section child occupies 1 user-column = 2 CSS units */
+  .section > .tile,
+  .section > .image-tile,
+  .section > .tile-add { grid-column: span 2; }
+  .split {
+    display: grid; grid-template-columns: 2fr 1fr;
+    gap: var(--gap); margin-bottom: var(--gap);
+  }
+  .col { display: flex; flex-direction: column; gap: var(--gap); }
+
+  /* Dynamic / custom dashboard grid */
+  .dyn-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    grid-auto-rows: var(--row-h, 80px);
+    grid-auto-flow: dense;
+    gap: var(--gap); margin-bottom: var(--gap);
+  }
+
+  /* ── Tiles ── */
+  .tile {
+    background: var(--tile-bg);
+    border: 1px solid var(--tile-border);
+    border-radius: var(--radius);
+    padding: 8px 6px;
+    min-height: 0; /* section grid controls height via grid-auto-rows */
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 3px; cursor: pointer; text-align: center;
+    position: relative;
+    transition: background 80ms ease, transform 80ms ease;
+    overflow: hidden;
+  }
+  /* Flex-column tiles (right-col) still need an explicit minimum */
+  .col .tile { min-height: var(--row-h, 80px); }
+  .tile:active { transform: scale(0.98); }
+  .tile-label { font-size: clamp(9px, calc(var(--row-h, 80px) * 0.165), 16px); color: var(--tile-label); font-weight: 500; line-height: 1.15; }
+  .tile-value { font-size: clamp(10px, calc(var(--row-h, 80px) * 0.185), 18px); font-weight: 600; color: var(--tile-text); line-height: 1; display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .tile-value svg { width: 1.2em; height: 1.2em; flex-shrink: 0; fill: currentColor; }
+  .tile-battery {
+    position: absolute; top: 6px; left: 8px;
+    font-size: 10px; color: var(--tile-label); font-weight: 500;
+  }
+  .tile-edit {
+    position: absolute; top: 4px; right: 6px;
+    color: var(--tile-label); font-size: 14px;
+    line-height: 1; padding: 2px 4px;
+    cursor: pointer; display: none;
+  }
+  body.edit-mode .tile-edit { display: block; }
+  body.edit-mode .tile,
+  body.edit-mode .image-tile { outline: 1px dashed #444; outline-offset: -2px; }
+
+  /* Edit mode drag handles */
+  .tile-drag-handle {
+    position: absolute; bottom: 4px; right: 6px;
+    color: #444; font-size: 12px; cursor: grab;
+    display: none; line-height: 1;
+  }
+  body.edit-mode .tile-drag-handle { display: block; }
+  .tile.dragging { opacity: 0.4; }
+  .tile.drag-over { outline: 2px dashed var(--info) !important; outline-offset: -2px; }
+
+  /* Edit mode remove button */
+  .tile-remove {
+    position: absolute; top: 4px; left: 6px;
+    color: var(--alert); font-size: 14px; font-weight: bold;
+    line-height: 1; padding: 2px 4px;
+    cursor: pointer; display: none; background: none; border: none;
+  }
+  body.edit-mode .tile-remove { display: block; z-index: 3; }
+
+  /* Tile state classes */
+  .tile.active {
+    background: var(--active); color: var(--active-text);
+    border-color: var(--active);
+  }
+  .tile.active .tile-label, .tile.active .tile-value,
+  .tile.active .tile-battery, .tile.active .tile-edit,
+  .tile.active .tile-drag-handle { color: var(--active-text); }
+  .tile.info { background: var(--info); color: #fff; border-color: var(--info); }
+  .tile.info .tile-label, .tile.info .tile-value { color: #fff; }
+  .tile.alert { background: var(--alert); color: #fff; border-color: var(--alert); }
+  .tile.alert .tile-label, .tile.alert .tile-value { color: #fff; }
+  .tile.flat {
+    background: var(--disabled-bg); color: var(--disabled-text);
+    border-color: var(--disabled-bg);
+  }
+  .tile.flat .tile-label, .tile.flat .tile-value { color: var(--disabled-text); }
+  .tile.unmapped { background: #0f0f0f; border-style: dashed; border-color: #333; color: #555; }
+  .tile.unmapped .tile-label { color: #555; }
+  /* Spacer tiles — invisible (opacity:0) in normal mode so they hold grid space,
+     dashed placeholder in edit mode so they're visible and draggable */
+  .tile.spacer {
+    background: transparent; border: none; opacity: 0;
+    cursor: default; pointer-events: none;
+  }
+  body.edit-mode .tile.spacer {
+    opacity: 1; background: transparent; border: 1px dashed #333;
+    pointer-events: auto;
+  }
+  body.edit-mode .tile.spacer .tile-label { color: #444; font-size: 10px; }
+  .tile.hidden, .image-tile.hidden { display: none; }
+  /* Hidden tiles visible as ghosted placeholders in edit mode */
+  body.edit-mode .tile.hidden {
+    display: flex !important; opacity: 0.22;
+    border-style: dashed; pointer-events: auto;
+  }
+
+  /* Battery color tiles (used on battery dynamic dashboard) */
+  .tile.batt-red { background: rgba(216,58,58,0.18); border-color: rgba(216,58,58,0.35); }
+  .tile.batt-red .tile-label, .tile.batt-red .tile-value { color: var(--alert); }
+  .tile.batt-amber { background: rgba(232,169,58,0.12); border-color: rgba(232,169,58,0.25); }
+  .tile.batt-amber .tile-label, .tile.batt-amber .tile-value { color: var(--warn); }
+  .tile.batt-green { background: rgba(45,191,100,0.08); border-color: rgba(45,191,100,0.18); }
+  .tile.batt-green .tile-label, .tile.batt-green .tile-value { color: var(--active); }
+
+  /* Corner resize handle */
+  .resize-handle {
+    position: absolute; bottom: 0; right: 0;
+    width: 14px; height: 14px; cursor: nwse-resize;
+    display: none; touch-action: none;
+    background: linear-gradient(135deg, transparent 50%, #555 51%);
+    border-bottom-right-radius: var(--radius);
+    z-index: 2;
+  }
+  body.edit-mode .tile .resize-handle { display: block; }
+  body.edit-mode .image-tile .resize-handle { display: block; z-index: 3; }
+  /* Drag handle needs z-index + contrast inside image tiles */
+  .image-tile .tile-drag-handle { z-index: 3; background: rgba(0,0,0,0.55); color: #ccc; border-radius: 2px; padding: 1px 3px; }
+
+  /* Dirty / unsaved badge */
+  #dirty-badge {
+    display: none;
+    background: rgba(232,169,58,0.18); color: var(--warn);
+    border: 1px solid rgba(232,169,58,0.35);
+    padding: 3px 9px; border-radius: 10px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.2px;
+    cursor: default;
+  }
+
+  /* Column/row span — section tiles use CSS-unit values (2× user columns) */
+  .section > [data-col="1"]  { grid-column: span 1; }  /* ½ user col  */
+  .section > [data-col="4"]  { grid-column: span 4; }  /* 2 user cols */
+  .section > [data-col="6"]  { grid-column: span 6; }  /* 3 user cols */
+  /* Half-width tiles get smaller text so they don't overflow */
+  .section > [data-col="1"] .tile-label { font-size: clamp(7px, calc(var(--row-h, 80px) * 0.13), 12px); }
+  .section > [data-col="1"] .tile-value { font-size: clamp(8px, calc(var(--row-h, 80px) * 0.15), 13px); }
+  /* Custom/dynamic grids use 1:1 user-column spans */
+  #custom-grid > [data-col="2"] { grid-column: span 2; }
+  #custom-grid > [data-col="3"] { grid-column: span 3; }
+  /* Row span — same semantics everywhere */
+  .tile[data-row="2"],       .image-tile[data-row="2"]  { grid-row: span 2; }
+  .tile[data-row="3"],       .image-tile[data-row="3"]  { grid-row: span 3; }
+  .tile[data-row="4"],       .image-tile[data-row="4"]  { grid-row: span 4; }
+  /* Custom grid col span for image tiles */
+  #custom-grid > .image-tile[data-col="2"] { grid-column: span 2; }
+  #custom-grid > .image-tile[data-col="3"] { grid-column: span 3; }
+
+  /* Add-tile placeholder */
+  .tile-add {
+    background: transparent; border: 1px dashed #333;
+    border-radius: var(--radius); min-height: 0;
+    display: none; align-items: center; justify-content: center;
+    cursor: pointer; color: #444; font-size: 22px;
+    transition: border-color 120ms, color 120ms;
+  }
+  .tile-add:hover { border-color: #555; color: #888; }
+  body.edit-mode .tile-add { display: flex; }
+
+  /* ── Image tiles ── */
+  .image-tile {
+    background: #0a0a0a;
+    border-radius: var(--radius);
+    border: 1px solid var(--tile-border);
+    aspect-ratio: 16 / 9;
+    overflow: hidden; position: relative; cursor: pointer;
+  }
+  .image-tile.portrait { aspect-ratio: 9 / 16; }
+  /* Custom-grid image tiles fill their assigned grid cells — let col/row span control sizing */
+  #custom-grid .image-tile { aspect-ratio: unset; min-height: var(--row-h, 80px); }
+  #custom-grid .image-tile.portrait { aspect-ratio: unset; }
+  .image-tile img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; -webkit-user-drag: none; }
+  /* Drag/resize feedback for image tiles (mirrors .tile rules) */
+  .image-tile.dragging { opacity: 0.4; }
+  .image-tile.drag-over { outline: 2px dashed var(--info) !important; outline-offset: -2px; }
+  .image-tile .image-label {
+    position: absolute; bottom: 4px; left: 6px;
+    background: rgba(0,0,0,0.55); color: #fff;
+    font-size: 11px; padding: 2px 6px; border-radius: 2px;
+  }
+  .image-tile .image-edit {
+    position: absolute; top: 4px; right: 6px;
+    background: rgba(0,0,0,0.6); color: #fff;
+    font-size: 14px; padding: 2px 6px;
+    border-radius: 3px; display: none;
+  }
+  body.edit-mode .image-tile .image-edit { display: block; }
+  .image-empty {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    color: #555; font-size: 12px;
+  }
+
+  /* ── Lightbox ── */
+  #lightbox-modal {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.94);
+    display: none; align-items: center; justify-content: center;
+    z-index: 200; cursor: zoom-out;
+  }
+  #lightbox-modal.open { display: flex; }
+  #lightbox-modal img {
+    max-width: 100%; max-height: 100%;
+    object-fit: contain; display: block;
+    border-radius: 4px;
+  }
+  #lightbox-close {
+    position: fixed; top: 12px; right: 16px;
+    background: rgba(0,0,0,0.7); color: #fff;
+    border: 1px solid #444; border-radius: 50%;
+    width: 34px; height: 34px; font-size: 18px; line-height: 34px;
+    text-align: center; cursor: pointer; z-index: 201;
+  }
+  #lightbox-label {
+    position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.65); color: #fff;
+    font-size: 12px; padding: 4px 10px; border-radius: 3px;
+    pointer-events: none; z-index: 201;
+  }
+
+  /* ── Modals ── */
+  .modal {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.88);
+    display: none; align-items: flex-start; justify-content: center;
+    z-index: 100; overflow-y: auto; padding: 20px 10px;
+  }
+  .modal.open { display: flex; }
+  .modal-card {
+    background: #111; border: 1px solid #333;
+    border-radius: 8px; width: 100%; max-width: 720px;
+    padding: 20px; color: var(--tile-text);
+  }
+  .modal-card h2 { font-size: 18px; margin-bottom: 16px; font-weight: 500; }
+  .modal-card h3 {
+    font-size: 13px; color: var(--tile-label);
+    text-transform: uppercase; letter-spacing: 0.8px;
+    margin: 16px 0 6px; font-weight: 600;
+  }
+  .form-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+  .form-row label { font-size: 12px; color: var(--tile-label); }
+  .form-row input, .form-row select, .form-row textarea {
+    background: #1a1a1a; border: 1px solid #2a2a2a;
+    color: var(--tile-text); padding: 8px 10px;
+    font-size: 14px; font-family: var(--font-stack);
+    border-radius: 4px; outline: none; width: 100%;
+  }
+  .form-row input:focus, .form-row select:focus { border-color: var(--info); }
+  .btn-row { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+  .btn {
+    background: var(--info); color: #fff; border: none;
+    padding: 10px 16px; font-size: 14px; border-radius: 4px;
+    cursor: pointer; font-family: var(--font-stack);
+  }
+  .btn.secondary { background: #2a2a2a; }
+  .btn.danger { background: var(--alert); }
+  .btn.sm { padding: 6px 12px; font-size: 13px; }
+  .help {
+    font-size: 12px; color: var(--tile-label);
+    line-height: 1.5; margin: 8px 0; padding: 10px;
+    background: #0a0a0a; border-left: 3px solid var(--info);
+    border-radius: 2px;
+  }
+  .help code { background: #1a1a1a; padding: 1px 5px; border-radius: 2px; font-size: 11px; font-family: ui-monospace, monospace; }
+  .status-msg { font-size: 12px; margin-top: 8px; padding: 6px 10px; border-radius: 4px; }
+  .status-msg.ok { background: rgba(45,191,100,0.15); color: var(--active); }
+  .status-msg.err { background: rgba(216,58,58,0.15); color: var(--alert); }
+
+  /* Confirm modal — compact centered */
+  #confirm-modal .modal-card { max-width: 360px; text-align: center; }
+
+  /* Dashboard manager items */
+  .dashboard-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; background: #1a1a1a;
+    border: 1px solid #2a2a2a; border-radius: 4px;
+    cursor: grab; user-select: none;
+  }
+  .dashboard-item.dragging { opacity: 0.5; }
+  .dashboard-item.drag-over { border-color: var(--info); background: #0a1a2a; }
+  .dashboard-item .drag-handle { cursor: grab; color: #666; user-select: none; }
+  .dashboard-item input[type="checkbox"] { cursor: pointer; flex-shrink: 0; }
+  .dashboard-item label { flex: 1; cursor: pointer; user-select: none; }
+  .dashboard-item.hidden-dashboard label { color: #666; font-style: italic; }
+  #confirm-modal p { margin: 12px 0 4px; color: var(--tile-label); font-size: 14px; line-height: 1.5; }
+  #confirm-modal .btn-row { justify-content: center; }
+
+  /* Device picker scrollable list */
+  #device-list { max-height: 340px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+  .device-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; background: #1a1a1a;
+    border: 1px solid #2a2a2a; border-radius: 4px; cursor: pointer;
+  }
+  .device-row:hover { border-color: var(--info); }
+  .device-row .dev-name { font-size: 13px; flex: 1; }
+  .device-row .dev-id { font-size: 11px; color: var(--tile-label); }
+
+  /* Dynamic dashboard hidden tile — invisible in normal mode, ghost in edit mode */
+  .tile.dyn-hidden { display: none; }
+  body.edit-mode .tile.dyn-hidden {
+    display: flex !important; opacity: 0.22;
+    border-style: dashed; pointer-events: auto;
+  }
+  .tile-hide-toggle {
+    position: absolute; bottom: 4px; left: 6px;
+    font-size: 10px; color: var(--tile-label);
+    background: #111; border: 1px solid #333;
+    border-radius: 2px; padding: 1px 5px; cursor: pointer;
+    display: none;
+  }
+  body.edit-mode .tile-hide-toggle { display: block; }
+
+  /* ── Responsive ── */
+  @media (min-width: 600px) and (max-width: 899px) {
+    body { padding: 8px; }
+    :root { --gap: 7px; }
+  }
+  @media (min-width: 900px) and (max-width: 1199px) {
+    body { padding: 10px; }
+    :root { --gap: 8px; }
+    .topbar h1 { font-size: 24px; }
+  }
+  @media (min-width: 1200px) and (max-width: 1599px) {
+    body { padding: 12px; max-width: 1400px; margin: 0 auto; }
+    :root { --gap: 10px; }
+    .topbar h1 { font-size: 26px; }
+    .split { grid-template-columns: 3fr 1fr; }
+    .col#cameras {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: var(--gap); align-content: start;
+    }
+    .col#cameras .image-tile.portrait { grid-row: span 2; }
+  }
+  @media (min-width: 1600px) {
+    body { padding: 16px; max-width: 1800px; margin: 0 auto; }
+    :root { --gap: 12px; }
+    .topbar h1 { font-size: 28px; }
+    .split { grid-template-columns: 3fr 1fr; }
+    .col#cameras {
+      display: grid; grid-template-columns: 1fr 1fr 1fr;
+      gap: var(--gap); align-content: start;
+    }
+    .col#cameras .image-tile.portrait { grid-row: span 2; }
+  }
+  @media (max-width: 599px) {
+    /* Keep cameras + right-col side by side so images are thumbnail-sized.
+       Tap an image tile to enlarge it in the lightbox. */
+    .split { grid-template-columns: 3fr 2fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Always-visible HSM + presence status bar -->
+<div id="status-bar"></div>
+
+<!-- Top bar -->
+<div class="topbar">
+  <span class="home-icon"></span>
+  <h1 id="dash-title">Home</h1>
+  <span class="spacer"></span>
+  <span id="dirty-badge" title="Layout has unsaved changes — click Save in Settings to persist">● Unsaved</span>
+  <span class="ws-dot" id="ws-dot" title="WebSocket"></span>
+  <span class="conn-dot" id="conn-dot"></span>
+  <button class="edit-mode-toggle" id="edit-mode-btn">Edit</button>
+  <button class="icon-btn" id="open-settings" title="Settings">⚙</button>
+</div>
+
+<!-- Dashboard navigation chips (hidden until there are custom/dynamic dashboards) -->
+<div id="dash-nav"></div>
+
+<!-- ── Main dashboard view ── -->
+<div id="view-main">
+  <div class="section" id="row1"></div>
+  <div class="section" id="row2"></div>
+  <div class="section" id="row3"></div>
+  <div class="split">
+    <div class="col" id="cameras"></div>
+    <div class="col" id="right-col"></div>
+  </div>
+  <div class="section" id="row-bottom"></div>
+</div>
+
+<!-- ── Dynamic dashboard view ── -->
+<div id="view-dynamic" style="display:none">
+  <div class="dyn-grid" id="dynamic-grid"></div>
+</div>
+
+<!-- ── Custom dashboard view ── -->
+<div id="view-custom" style="display:none">
+  <div class="dyn-grid" id="custom-grid"></div>
+  <div style="margin-top:8px">
+    <button class="btn secondary sm" id="custom-add-tile" style="display:none">+ Add Device</button>
+  </div>
+</div>
+
+<!-- ── Modals ── -->
+
+<!-- Settings -->
+<div class="modal" id="settings-modal">
+  <div class="modal-card">
+    <h2>Dashboard Settings</h2>
+    <div class="help">
+      Configuration is stored in Cloudflare KV and synced across all devices. The hub access token is kept server-side.
+    </div>
+    <h3>Hub Connection</h3>
+    <div class="form-row">
+      <label>Hub Base URL — Cloud (<code>https://cloud.hubitat.com/api/HUB-UID</code>) or Tunnel hostname</label>
+      <input id="cfg-url" placeholder="https://cloud.hubitat.com/api/abc-uuid" />
+    </div>
+    <div class="form-row">
+      <label>Maker API App ID</label>
+      <input id="cfg-app" placeholder="45" />
+    </div>
+    <div class="form-row">
+      <label>Access Token <span id="token-status" style="font-size:11px;margin-left:6px;color:var(--tile-label)"></span></label>
+      <input id="cfg-token" type="password" placeholder="Leave blank to keep existing token" />
+      <label style="margin-top:4px; font-size:12px">
+        <input type="checkbox" id="show-token-cb" /> Show value (fetches from server)
+      </label>
+    </div>
+    <div class="form-row">
+      <label><input type="checkbox" id="cfg-is-cloud" /> This is a Hubitat Cloud URL (auto-detected if blank)</label>
+    </div>
+    <div class="form-row">
+      <label>Poll interval (seconds) — used as fallback when WebSocket is unavailable</label>
+      <input id="cfg-poll" type="number" min="2" max="60" value="5" />
+    </div>
+    <div class="form-row">
+      <label>Dashboard title</label>
+      <input id="cfg-title" placeholder="My Home Dashboard" />
+    </div>
+    <div class="form-row">
+      <label>Grid columns per section (applies to main dashboard rows)</label>
+      <select id="cfg-grid-cols">
+        <option value="2">2 columns</option>
+        <option value="3">3 columns (default)</option>
+        <option value="4">4 columns</option>
+        <option value="5">5 columns</option>
+        <option value="6">6 columns</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label>Tile height</label>
+      <select id="cfg-tile-h">
+        <option value="48">XS — 48 px</option>
+        <option value="64">S — 64 px</option>
+        <option value="80">M — 80 px (default)</option>
+        <option value="104">L — 104 px</option>
+        <option value="136">XL — 136 px</option>
+      </select>
+    </div>
+    <div class="btn-row">
+      <button class="btn" id="test-conn">Test &amp; Load Devices</button>
+      <button class="btn" id="save-cfg">💾 Save to KV</button>
+      <button class="btn secondary" id="close-settings">Done</button>
+      <button class="btn danger" id="reset-cfg">Reset</button>
+    </div>
+    <div id="conn-status"></div>
+
+    <h3>Status Bar</h3>
+    <div class="help">Select which presence sensors appear as chips at the top of every view.</div>
+    <div id="presence-picker-list" style="max-height:200px; overflow-y:auto; border:1px solid #2a2a2a; border-radius:4px; padding:8px; display:flex; flex-direction:column; gap:4px; margin-top:8px">
+      <div style="color:#555;font-size:12px">Load devices first — click "Test &amp; Load Devices" above.</div>
+    </div>
+
+    <h3>Custom Dashboards</h3>
+    <div class="help">Create a named dashboard and populate it with any devices from your Maker API. Access it from the nav bar.</div>
+    <div class="btn-row" style="margin-top:0">
+      <button class="btn secondary sm" id="new-custom-dashboard">+ New Dashboard</button>
+    </div>
+    <div id="custom-dash-list" style="margin-top:8px; display:flex; flex-direction:column; gap:6px"></div>
+
+    <h3 style="margin-top:16px">Auto-generated Dashboards</h3>
+    <div class="help">Automatically show navigation tabs for common device types found on your hub. Individual visibility can still be adjusted in the section below. To add new auto-generated groups, extend <code>DYNAMIC_GROUPS</code> in the source.</div>
+    <div class="form-row" style="margin-top:8px">
+      <label>
+        <input type="checkbox" id="cfg-auto-dynamic" />
+        Show auto-generated dashboards (Switches, Lights, Locks, Battery, Presence, Contact Sensors, Shades)
+      </label>
+    </div>
+
+    <h3 style="margin-top:16px">Dashboard Order &amp; Visibility</h3>
+    <div class="help">Drag to reorder dashboards. Uncheck to hide from navigation.</div>
+    <div id="dashboard-manager-list" style="max-height:300px; overflow-y:auto; border:1px solid #2a2a2a; border-radius:4px; padding:8px; display:flex; flex-direction:column; gap:6px; margin-top:8px"></div>
+    <div class="btn-row" style="margin-top:8px">
+      <button class="btn sm secondary" id="reset-dashboards">Reset to Default</button>
+    </div>
+
+    <h3>Backup &amp; Restore</h3>
+    <div class="btn-row" style="margin-top:0">
+      <button class="btn secondary" id="export-cfg">⬇ Download Config</button>
+      <button class="btn secondary" id="import-cfg-btn">⬆ Upload Config</button>
+      <input type="file" id="import-cfg-file" accept="application/json,.json" style="display:none" />
+      <button class="btn secondary" id="copy-cfg">📋 Copy</button>
+    </div>
+    <div class="form-row" style="margin-top:10px">
+      <label>Paste / edit JSON directly</label>
+      <textarea id="cfg-json" rows="5" style="font-family:ui-monospace,monospace;font-size:11px"></textarea>
+    </div>
+    <div class="btn-row">
+      <button class="btn" id="apply-json">Apply Pasted JSON</button>
+      <button class="btn secondary" id="show-json">Show Current Config</button>
+    </div>
+    <div id="io-status"></div>
+  </div>
+</div>
+
+<!-- Picker (mode / HSM) -->
+<div class="modal" id="picker-modal">
+  <div class="modal-card">
+    <h2 id="picker-title">Select</h2>
+    <div id="picker-options" style="display:flex; flex-direction:column; gap:8px"></div>
+    <div class="btn-row">
+      <button class="btn secondary" id="picker-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Switch confirmation -->
+<div class="modal" id="confirm-modal">
+  <div class="modal-card">
+    <h2 id="confirm-title">Confirm</h2>
+    <p id="confirm-body"></p>
+    <div class="btn-row">
+      <button class="btn" id="confirm-yes">Yes, do it</button>
+      <button class="btn secondary" id="confirm-no">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Valve timer picker -->
+<div class="modal" id="valve-timer-modal">
+  <div class="modal-card">
+    <h2 id="valve-title">How long?</h2>
+    <div style="display:flex; flex-direction:column; gap:8px">
+      <button class="btn" id="valve-open-5">Open for 5 min</button>
+      <button class="btn" id="valve-open-30">Open for 30 min</button>
+      <button class="btn" id="valve-open-60">Open for 60 min</button>
+      <button class="btn" id="valve-open-90">Open for 90 min</button>
+      <button class="btn danger" id="valve-close">Close Valve</button>
+      <button class="btn secondary" id="valve-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Shade position picker -->
+<div class="modal" id="shade-position-modal">
+  <div class="modal-card">
+    <h2 id="shade-title">Shade Position</h2>
+    <div style="display:flex; flex-direction:column; gap:8px">
+      <button class="btn" id="shade-open">Open</button>
+      <button class="btn" id="shade-75">75% Open</button>
+      <button class="btn" id="shade-50">50% Open</button>
+      <button class="btn" id="shade-25">25% Open</button>
+      <button class="btn danger" id="shade-close">Close</button>
+      <button class="btn secondary" id="shade-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Bulb / dimmer level picker -->
+<div class="modal" id="bulb-level-modal">
+  <div class="modal-card">
+    <h2 id="bulb-title">Light Level</h2>
+    <div style="display:flex; flex-direction:column; gap:8px">
+      <button class="btn" id="bulb-100">100% — Full brightness</button>
+      <button class="btn" id="bulb-75">75%</button>
+      <button class="btn" id="bulb-50">50%</button>
+      <button class="btn" id="bulb-25">25%</button>
+      <button class="btn danger" id="bulb-off">Turn Off</button>
+      <button class="btn secondary" id="bulb-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tile editor -->
+<div class="modal" id="tile-editor">
+  <div class="modal-card">
+    <h2 id="tile-editor-title">Edit Tile</h2>
+    <div class="form-row">
+      <label>Label</label>
+      <input id="te-label" />
+    </div>
+    <div class="form-row">
+      <label>Tile type</label>
+      <select id="te-kind">
+        <option value="switch">Switch (on/off)</option>
+        <option value="bulb">Bulb / Dimmer (level picker)</option>
+        <option value="lock">Lock (with battery)</option>
+        <option value="garage">Garage door</option>
+        <option value="contact">Contact sensor (open/closed)</option>
+        <option value="water">Water sensor (wet/dry)</option>
+        <option value="valve">Valve (open/closed)</option>
+        <option value="shade">Window Shade (positions)</option>
+        <option value="presence">Presence</option>
+        <option value="mode">Hubitat Mode</option>
+        <option value="hsm">HSM Status</option>
+        <option value="image">Virtual Image device</option>
+        <option value="dashboard-link">Dashboard / URL link</option>
+        <option value="text">Read-only attribute</option>
+        <option value="spacer">Spacer (blank gap)</option>
+        <option value="hidden">Hide this tile</option>
+      </select>
+    </div>
+    <div class="form-row" id="te-device-row">
+      <label>Hubitat device</label>
+      <select id="te-device"></select>
+    </div>
+    <div class="form-row" id="te-attr-row" style="display:none">
+      <label>Attribute to display <span id="te-attr-hint" style="font-size:11px;color:var(--tile-label)"></span></label>
+      <input id="te-attr" list="te-attr-list" placeholder="e.g. temperature, humidity…" autocomplete="off" />
+      <datalist id="te-attr-list"></datalist>
+    </div>
+    <div class="form-row" id="te-url-row" style="display:none">
+      <label>Link URL (use <code>#dynamic/switches</code>, <code>#custom/name</code>, or any URL)</label>
+      <input id="te-url" placeholder="#dynamic/switches" />
+      <label style="margin-top:6px; font-size:12px">
+        <input type="checkbox" id="te-url-newtab" /> Open in new tab
+      </label>
+    </div>
+    <div class="form-row">
+      <label>Visual style</label>
+      <select id="te-style">
+        <option value="auto">Auto (based on state)</option>
+        <option value="dark">Dark (default)</option>
+        <option value="flat">Flat / light gray</option>
+        <option value="info">Info blue</option>
+      </select>
+    </div>
+    <div class="form-row" id="te-confirm-row" style="display:none">
+      <label>
+        <input type="checkbox" id="te-require-confirm" />
+        Require tap confirmation before toggling
+        <span style="font-size:11px;color:var(--tile-label);margin-left:4px">(lock/garage: on by default)</span>
+      </label>
+    </div>
+    <div class="form-row" id="te-valve-timer-row" style="display:none">
+      <label>
+        <input type="checkbox" id="te-valve-timer" />
+        Show timer picker (5/30/60/90 min) instead of direct toggle
+        <span style="font-size:11px;color:var(--tile-label);margin-left:4px">(for timed-open valves)</span>
+      </label>
+    </div>
+    <div class="form-row" id="te-orient-row" style="display:none">
+      <label>Image orientation</label>
+      <select id="te-image-orient">
+        <option value="landscape">Landscape (16:9, default)</option>
+        <option value="portrait">Portrait (9:16, taller)</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label>Tile width</label>
+      <select id="te-col-span">
+        <option value="0.5">Half (½ column)</option>
+        <option value="1">Normal (1 column)</option>
+        <option value="2">Wide (2 columns)</option>
+        <option value="3">Full row (3 columns)</option>
+      </select>
+    </div>
+    <div class="form-row" id="te-row-span-row">
+      <label>Tile height (rows)</label>
+      <select id="te-row-span">
+        <option value="1">1 row</option>
+        <option value="2">2 rows</option>
+        <option value="3">3 rows</option>
+        <option value="4">4 rows</option>
+      </select>
+    </div>
+    <div class="btn-row">
+      <button class="btn" id="te-save">Save</button>
+      <button class="btn secondary" id="te-cancel">Cancel</button>
+      <button class="btn danger" id="te-delete">Delete Tile</button>
+      <button class="btn secondary" id="te-duplicate">Duplicate</button>
+      <button class="btn secondary" id="te-clear" style="margin-left:auto">Reset defaults</button>
+    </div>
+  </div>
+</div>
+
+<!-- Device picker (for custom dashboards — supports multi-select) -->
+<div class="modal" id="device-picker-modal">
+  <div class="modal-card">
+    <h2 id="device-picker-title">Add Device</h2>
+    <div class="form-row">
+      <input id="device-search" placeholder="Search by name…" autocomplete="off" />
+    </div>
+    <div id="device-list"></div>
+    <div class="btn-row">
+      <button class="btn" id="device-picker-add" style="display:none">
+        Add <span id="device-picker-count">0</span> Selected
+      </button>
+      <button class="btn secondary" id="device-picker-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- New custom dashboard name dialog -->
+<div class="modal" id="new-dash-modal">
+  <div class="modal-card" style="max-width:400px">
+    <h2>New Custom Dashboard</h2>
+    <div class="form-row">
+      <label>Name (used in URL: #custom/name)</label>
+      <input id="new-dash-name" placeholder="my-cameras" />
+    </div>
+    <div class="form-row">
+      <label>Title shown in nav bar</label>
+      <input id="new-dash-title" placeholder="My Cameras" />
+    </div>
+    <div class="btn-row">
+      <button class="btn" id="new-dash-create">Create</button>
+      <button class="btn secondary" id="new-dash-cancel">Cancel</button>
+    </div>
+    <div id="new-dash-status"></div>
+  </div>
+</div>
+
+<!-- Lightbox (full-screen image viewer) -->
+<div id="lightbox-modal">
+  <button id="lightbox-close" title="Close">✕</button>
+  <img id="lightbox-img" alt="" />
+  <span id="lightbox-label"></span>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const API_CONFIG = '/api/config';
+const API_HUB    = '/api/hub';
+const STORAGE_KEY = 'hubitat-dash-v4-cache';
+
+// Default layout: section → ordered slot IDs.
+// Slot IDs are stable — KV config keys off them.
+// To add tiles, append new IDs; to remove, just exclude from the layout array.
+const LAYOUT_DEFAULTS = {
+  row1:       ['s1','s2','s3'],
+  row2:       ['s4','s5','s6'],
+  row3:       ['s7','s8','s9'],
+  cameras:    ['cam1','cam2','cam3','cam4','cam5','cam6'],
+  'right-col':['r1','r2','r3','r4','r5','r6','r7','r8','r9'],
+  'row-bottom':['b1','b2','b3'],
+};
+
+const DEFAULT_SLOTS = {
+  s1:   { label:'Slot 1',   kind:'hidden' },
+  s2:   { label:'Slot 2',   kind:'hidden' },
+  s3:   { label:'Slot 3',   kind:'hidden' },
+  s4:   { label:'Slot 4',   kind:'hidden' },
+  s5:   { label:'Slot 5',   kind:'hidden' },
+  s6:   { label:'Slot 6',   kind:'hidden' },
+  s7:   { label:'Slot 7',   kind:'hidden' },
+  s8:   { label:'Slot 8',   kind:'hidden' },
+  s9:   { label:'Slot 9',   kind:'hidden' },
+  cam1: { label:'Image 1',  kind:'hidden' },
+  cam2: { label:'Image 2',  kind:'hidden' },
+  cam3: { label:'Image 3',  kind:'hidden' },
+  cam4: { label:'Image 4',  kind:'hidden' },
+  cam5: { label:'Image 5',  kind:'hidden' },
+  cam6: { label:'Image 6',  kind:'hidden' },
+  r1:   { label:'Right 1',  kind:'hidden' },
+  r2:   { label:'Right 2',  kind:'hidden' },
+  r3:   { label:'Right 3',  kind:'hidden' },
+  r4:   { label:'Right 4',  kind:'hidden' },
+  r5:   { label:'Right 5',  kind:'hidden' },
+  r6:   { label:'Right 6',  kind:'hidden' },
+  r7:   { label:'Right 7',  kind:'hidden' },
+  r8:   { label:'Right 8',  kind:'hidden' },
+  r9:   { label:'Right 9',  kind:'hidden' },
+  b1:   { label:'Bottom 1', kind:'hidden' },
+  b2:   { label:'Bottom 2', kind:'hidden' },
+  b3:   { label:'Bottom 3', kind:'hidden' },
+};
+
+const defaultConfig = {
+  hubBaseUrl: '', hubAppId: '', hubToken: '',
+  hubIsCloud: true, hubHasToken: false,
+  pollSec: 5, title: 'Home',
+  slots: JSON.parse(JSON.stringify(DEFAULT_SLOTS)),
+  layout: null,   // null = use LAYOUT_DEFAULTS
+  gridCols: 3,    // grid columns per section
+  tileH: 80,      // tile row height in px
+};
+
+// Dynamic dashboard definitions
+// Dynamic groups use dynKindForDevice() so manual overrides are respected.
+// Battery is attribute-based and intentionally overlaps with other groups.
+const DYNAMIC_GROUPS = [
+  { key:'switches',  label:'Switches',        match: d => dynKindForDevice(d) === 'switch' },
+  { key:'lights',    label:'Lights',          match: d => dynKindForDevice(d) === 'bulb' },
+  { key:'locks',     label:'Locks',           match: d => dynKindForDevice(d) === 'lock' },
+  { key:'battery',   label:'Battery',         match: d => getAttr(d,'battery') != null },
+  { key:'presence',  label:'Presence',        match: d => dynKindForDevice(d) === 'presence' },
+  { key:'contact',   label:'Contact Sensors', match: d => dynKindForDevice(d) === 'contact' },
+  { key:'shades',    label:'Shades',          match: d => dynKindForDevice(d) === 'shade' },
+];
+
+// ── Grid helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * Convert user-facing colSpan (0.5 | 1 | 2 | 3) to CSS grid span units.
+ * The .section grid uses 2× the user column count internally, so:
+ *   ½ col → span 1   |   1 col → span 2   |   2 cols → span 4   |   3 cols → span 6
+ */
+function colToSpan(colSpan) {
+  if (colSpan === 0.5) return 1;
+  if (colSpan === 2)   return 4;
+  if (colSpan === 3)   return 6;
+  return 2; // default: 1 user-column = 2 CSS units
+}
+
+/**
+ * Convert CSS span units back to user-facing colSpan.
+ */
+function spanToCol(cssSpan) {
+  if (cssSpan === 1) return 0.5;
+  if (cssSpan === 4) return 2;
+  if (cssSpan === 6) return 3;
+  return 1;
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+
+// Must be declared before loadConfigCache() because it accesses them
+let dynamicHidden    = {};        // { deviceId: true } — from KV
+let dynamicOrder     = {};        // { groupKey: [deviceId, ...] } — from KV
+let dynamicOverrides = {};        // { deviceId: kindString } — manual kind overrides
+let customDashboards = {};        // { name: { title, tiles: [...] } } — from KV
+let dashboardsVisible = {};       // { 'main': true, 'switches': false, ... } — user preferences
+let dashboardsOrder = [];         // ['main', 'switches', 'locks', ...] — user-defined order
+let statusBarPresenceDevices = {};// { deviceId: { label, kind } } — presence devices to show in status bar (even if tile hidden)
+
+let cfg            = loadConfigCache();
+let devices        = [];
+let hubModes       = [];
+let pollTimer      = null;
+let ws             = null;
+let wsReconnTimer  = null;
+let editMode       = false;
+let currentView    = 'main';      // 'main' | 'dynamic/switches' | 'custom/name'
+let devicePickerCallback = null;  // set before opening device picker
+let imageLastRefreshed   = {};    // { slotId: timestamp } — tracks last img.src update
+
+// Image URL tracking — only update <img> when the attribute value actually changes.
+// This prevents the flicker caused by unconditionally resetting img.src every poll.
+
+// Drag state — main dashboard (edit mode)
+let dragSlot    = null;
+let dragSection = null;
+
+// Drag state — dynamic dashboard
+let dragDynId = null;
+
+// Custom tile editor state
+let editingCustom = null; // { dashName, slotId } when editing a custom tile
+
+// Dirty flag — set when layout/tiles changed but not yet saved to KV
+let isDirty = false;
+function markDirty() {
+  isDirty = true;
+  const badge = document.getElementById('dirty-badge');
+  if (badge) badge.style.display = '';
+}
+function markClean() {
+  isDirty = false;
+  const badge = document.getElementById('dirty-badge');
+  if (badge) badge.style.display = 'none';
+}
+
+// Selected device IDs for multi-select picker
+const selectedDeviceIds = new Set();
+
+// ── Config cache ──────────────────────────────────────────────────────────────
+
+function loadConfigCache() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const c = JSON.parse(raw);
+      c.slots = c.slots || {};
+      for (const id of Object.keys(DEFAULT_SLOTS)) {
+        if (!c.slots[id]) c.slots[id] = { ...DEFAULT_SLOTS[id] };
+      }
+      // Restore dynamic and custom from cache
+      if (c.dynamic) {
+        dynamicHidden    = c.dynamic.hidden    || {};
+        dynamicOrder     = c.dynamic.order     || {};
+        dynamicOverrides = c.dynamic.overrides || {};
+      }
+      if (c.custom) {
+        customDashboards = c.custom;
+      }
+      // Restore dashboard visibility and ordering preferences
+      if (c.dashboardsVisible) {
+        dashboardsVisible = c.dashboardsVisible;
+      }
+      if (c.dashboardsOrder) {
+        dashboardsOrder = c.dashboardsOrder;
+      }
+      // Restore presence devices that should show in status bar
+      if (c.statusBarPresenceDevices) {
+        statusBarPresenceDevices = c.statusBarPresenceDevices;
+      }
+      // Remove these from the cfg object before returning
+      delete c.dynamic;
+      delete c.custom;
+      delete c.dashboardsVisible;
+      delete c.dashboardsOrder;
+      delete c.statusBarPresenceDevices;
+      return Object.assign({}, defaultConfig, c);
+    }
+  } catch (e) { console.warn('loadConfigCache', e); }
+  return JSON.parse(JSON.stringify(defaultConfig));
+}
+
+function saveConfigCache() {
+  try {
+    const cache = {
+      ...cfg,
+      dynamic: (Object.keys(dynamicHidden).length || Object.keys(dynamicOrder).length || Object.keys(dynamicOverrides).length)
+        ? { hidden: dynamicHidden, order: dynamicOrder,
+            overrides: Object.keys(dynamicOverrides).length ? dynamicOverrides : undefined }
+        : undefined,
+      custom: Object.keys(customDashboards).length ? customDashboards : undefined,
+      dashboardsVisible: Object.keys(dashboardsVisible).length ? dashboardsVisible : undefined,
+      dashboardsOrder: dashboardsOrder.length ? dashboardsOrder : undefined,
+      statusBarPresenceDevices: Object.keys(statusBarPresenceDevices).length ? statusBarPresenceDevices : undefined,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cache));
+  }
+  catch (e) { console.warn('saveConfigCache', e); }
+}
+
+async function fetchConfigFromWorker(includeSecrets) {
+  const url = includeSecrets ? `${API_CONFIG}?include_secrets=1` : API_CONFIG;
+  const r = await fetch(url, { credentials: 'same-origin' });
+  if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
+  return r.json();
+}
+
+async function pushConfigToWorker(payload) {
+  const r = await fetch(API_CONFIG, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) {
+    const body = await r.text().catch(() => '');
+    throw new Error(`HTTP ${r.status} ${r.statusText} ${body.substring(0,200)}`);
+  }
+  return r.json();
+}
+
+function applyServerConfig(serverCfg) {
+  if (!serverCfg) return;
+  if (serverCfg.dashboard) {
+    cfg.title   = serverCfg.dashboard.title   ?? cfg.title;
+    cfg.pollSec = serverCfg.dashboard.pollSec ?? cfg.pollSec;
+    if (serverCfg.dashboard.slots) {
+      cfg.slots = { ...DEFAULT_SLOTS, ...serverCfg.dashboard.slots };
+    }
+    if (serverCfg.dashboard.layout)   cfg.layout   = serverCfg.dashboard.layout;
+    if (serverCfg.dashboard.gridCols) cfg.gridCols = serverCfg.dashboard.gridCols;
+    if (serverCfg.dashboard.tileH)    cfg.tileH    = serverCfg.dashboard.tileH;
+    applyCssVars();
+  }
+  if (serverCfg.hub) {
+    cfg.hubBaseUrl = serverCfg.hub.baseUrl || '';
+    cfg.hubAppId   = serverCfg.hub.appId   || '';
+    cfg.hubIsCloud = !!serverCfg.hub.isCloud;
+    if (typeof serverCfg.hub.token === 'string') {
+      cfg.hubToken    = serverCfg.hub.token;
+      cfg.hubHasToken = serverCfg.hub.token.length > 0;
+    } else {
+      cfg.hubHasToken = !!serverCfg.hub.hasToken;
+    }
+  }
+  if (serverCfg.dynamic) {
+    dynamicHidden    = serverCfg.dynamic.hidden    || {};
+    dynamicOrder     = serverCfg.dynamic.order     || {};
+    dynamicOverrides = serverCfg.dynamic.overrides || {};
+  }
+  if (serverCfg.custom && Object.keys(serverCfg.custom).length > 0) {
+    // Only overwrite if server has custom dashboards; preserve in-memory if server is empty
+    customDashboards = serverCfg.custom;
+  }
+  if (serverCfg.dashboardsVisible && Object.keys(serverCfg.dashboardsVisible).length > 0) {
+    dashboardsVisible = serverCfg.dashboardsVisible;
+  }
+  if (serverCfg.dashboardsOrder && serverCfg.dashboardsOrder.length > 0) {
+    dashboardsOrder = serverCfg.dashboardsOrder;
+  }
+  if (serverCfg.statusBarPresenceDevices && Object.keys(serverCfg.statusBarPresenceDevices).length > 0) {
+    statusBarPresenceDevices = serverCfg.statusBarPresenceDevices;
+  }
+  saveConfigCache();
+}
+
+// ── CSS variable helpers ──────────────────────────────────────────────────────
+
+function applyCssVars() {
+  document.documentElement.style.setProperty('--grid-cols', String(cfg.gridCols || 3));
+  document.documentElement.style.setProperty('--row-h', `${cfg.tileH || 80}px`);
+}
+
+// ── Layout helpers ────────────────────────────────────────────────────────────
+
+function getLayout() {
+  return cfg.layout || LAYOUT_DEFAULTS;
+}
+
+function generateSlotId() {
+  const all = new Set(Object.keys(cfg.slots));
+  let n = 1;
+  while (all.has(`u${n}`)) n++;
+  return `u${n}`;
+}
+
+// ── Device helpers ────────────────────────────────────────────────────────────
+
+function hubPath(path) {
+  return `${API_HUB}${path.startsWith('/') ? path : '/' + path}`;
+}
+async function api(path) {
+  const fullUrl = hubPath(path);
+  let r;
+  try { r = await fetch(fullUrl, { credentials: 'same-origin' }); }
+  catch (netErr) { throw new Error(`Network error fetching ${fullUrl} — ${netErr.message}`); }
+  if (!r.ok) {
+    const body = await r.text().catch(() => '');
+    throw new Error(`HTTP ${r.status} ${r.statusText} for ${fullUrl}${body ? ' — ' + body.substring(0,200) : ''}`);
+  }
+  try { return await r.json(); }
+  catch (e) {
+    const text = await r.text().catch(() => '');
+    throw new Error(`Non-JSON response from ${fullUrl}: ${text.substring(0,200)}`);
+  }
+}
+async function sendCommand(deviceId, command, secondary) {
+  let path = `/devices/${deviceId}/${encodeURIComponent(command)}`;
+  if (secondary !== undefined) path += `/${encodeURIComponent(secondary)}`;
+  return api(path);
+}
+
+function findDevice(id) { return devices.find(d => String(d.id) === String(id)); }
+function getAttr(device, name) {
+  if (!device) return undefined;
+  if (Array.isArray(device.attributes)) {
+    const a = device.attributes.find(x => x.name === name);
+    return a ? a.currentValue : undefined;
+  }
+  return device.attributes ? device.attributes[name] : undefined;
+}
+function hasCapability(device, cap) {
+  if (!device || !device.capabilities) return false;
+  return device.capabilities.some(c => typeof c === 'string' ? c === cap : false);
+}
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function isImageDevice(d) {
+  return getAttr(d,'imageUrl') !== undefined ||
+         getAttr(d,'image')    !== undefined ||
+         getAttr(d,'imageUri') !== undefined ||
+         hasCapability(d,'ImageUrl') ||
+         hasCapability(d,'ImageCapture') ||
+         hasCapability(d,'VideoCapture');
+}
+function getImageUrl(d) {
+  return getAttr(d,'imageUrl') || getAttr(d,'image') || getAttr(d,'imageUri') || '';
+}
+
+// MDI icons from GitHub
+const MDI_ICONS = {
+  'lock': '<svg viewBox="0 0 24 24"><path d="M12,1C6.48,1 2,5.48 2,11V21H22V11C22,5.48 17.52,1 12,1M12,3C16.41,3 20,6.59 20,11V19H4V11C4,6.59 7.59,3 12,3M12,12C11.45,12 11,12.45 11,13V16C11,16.55 11.45,17 12,17C12.55,17 13,16.55 13,16V13C13,12.45 12.55,12 12,12Z"/></svg>',
+  'lock-open': '<svg viewBox="0 0 24 24"><path d="M12,1C6.48,1 2,5.48 2,11V21H22V11C22,5.48 17.52,1 12,1M12,3C16.41,3 20,6.59 20,11V19H4V11C4,6.59 7.59,3 12,3M12,12C11.45,12 11,12.45 11,13V16C11,16.55 11.45,17 12,17C12.55,17 13,16.55 13,16V13C13,12.45 12.55,12 12,12M8,11H16V8C16,5.24 14.23,2.97 11.77,2.85C7.05,2.63 3,6.5 3,11V21H5V11H8V11Z"/></svg>',
+  'garage': '<svg viewBox="0 0 24 24"><path d="M19,14V20H5V14H3V20A2,2 0 0,0 5,22H19A2,2 0 0,0 21,20V14H19M11,6H13V8H17V6H19V10H5V6H7V8H11V6M19,2H5A2,2 0 0,0 3,4V12H5V4H19V12H21V4A2,2 0 0,0 19,2Z"/></svg>',
+  'garage-open': '<svg viewBox="0 0 24 24"><path d="M19,14V20H5V14H3V20A2,2 0 0,0 5,22H19A2,2 0 0,0 21,20V14H19M10,4H14V7H19V11H5V7H10V4M19,2H5A2,2 0 0,0 3,4V12H5V4H19V12H21V4A2,2 0 0,0 19,2Z"/></svg>',
+  'toggle-switch': '<svg viewBox="0 0 24 24"><path d="M17,7H7A5,5 0 0,0 2,12A5,5 0 0,0 7,17H17A5,5 0 0,0 22,12A5,5 0 0,0 17,7M16,15.5A3.5,3.5 0 0,1 12.5,12A3.5,3.5 0 0,1 16,8.5A3.5,3.5 0 0,1 19.5,12A3.5,3.5 0 0,1 16,15.5Z"/></svg>',
+  'toggle-switch-off': '<svg viewBox="0 0 24 24"><path d="M17,7H7A5,5 0 0,1 12,2A5,5 0 0,1 17,7H19A7,7 0 0,0 12,0A7,7 0 0,0 5,7A7,7 0 0,0 12,14A7,7 0 0,0 19,7V7H17A5,5 0 0,1 12,12A5,5 0 0,1 7,7A5,5 0 0,1 12,2A5,5 0 0,1 17,7M8,12A4,4 0 0,0 4,16A4,4 0 0,0 8,20A4,4 0 0,0 12,16H10A2,2 0 0,1 8,18A2,2 0 0,1 6,16A2,2 0 0,1 8,14A2,2 0 0,1 10,16H12A4,4 0 0,0 8,12Z"/></svg>',
+  'lightbulb': '<svg viewBox="0 0 24 24"><path d="M12,2A7,7 0 0,0 5,9C5,11.38 6.19,13.47 8,14.74V17A1,1 0 0,0 9,18H15A1,1 0 0,0 16,17V14.74C17.81,13.47 19,11.38 19,9A7,7 0 0,0 12,2M9,21A1,1 0 0,0 10,22H14A1,1 0 0,0 15,21V20H9V21Z"/></svg>',
+  'lightbulb-on': '<svg viewBox="0 0 24 24"><path d="M12,2A7,7 0 0,0 5,9C5,11.38 6.19,13.47 8,14.74V17A1,1 0 0,0 9,18H15A1,1 0 0,0 16,17V14.74C17.81,13.47 19,11.38 19,9A7,7 0 0,0 12,2M9,21A1,1 0 0,0 10,22H14A1,1 0 0,0 15,21V20H9V21Z"/></svg>',
+  'water-percent': '<svg viewBox="0 0 24 24"><path d="M12,3.25C12,3.25 6,10 6,14C6,17.32 8.69,20 12,20A6,6 0 0,0 18,14C18,10 12,3.25 12,3.25M14.47,9.97L15.53,11.03L9.53,17.03L8.47,15.97M9.75,10A1.25,1.25 0 0,1 11,11.25A1.25,1.25 0 0,1 9.75,12.5A1.25,1.25 0 0,1 8.5,11.25A1.25,1.25 0 0,1 9.75,10M14.25,14.5A1.25,1.25 0 0,1 15.5,15.75A1.25,1.25 0 0,1 14.25,17A1.25,1.25 0 0,1 13,15.75A1.25,1.25 0 0,1 14.25,14.5Z"/></svg>',
+  'valve': '<svg viewBox="0 0 24 24"><path d="M4 22H2V2H4M22 2H20V22H22M17.24 5.34L13.24 9.34A3 3 0 0 0 9.24 13.34L5.24 17.34L6.66 18.76L10.66 14.76A3 3 0 0 0 14.66 10.76L18.66 6.76Z"/></svg>',
+  'sleep': '<svg viewBox="0 0 24 24"><path d="M23,12H17V10L20.39,6H17V4H23V6L19.62,10H23V12M15,16H9V14L12.39,10H9V8H15V10L11.62,14H15V16M7,20H1V18L4.39,14H1V12H7V14L3.62,18H7V20Z"/></svg>',
+  'home-account': '<svg viewBox="0 0 24 24"><path d="M12,3L2,12H5V20H19V12H22L12,3M12,8.75A2.25,2.25 0 0,1 14.25,11A2.25,2.25 0 0,1 12,13.25A2.25,2.25 0 0,1 9.75,11A2.25,2.25 0 0,1 12,8.75M12,15C13.5,15 16.5,15.75 16.5,17.25V18H7.5V17.25C7.5,15.75 10.5,15 12,15Z"/></svg>',
+  'door-open': '<svg viewBox="0 0 24 24"><path d="M12,3C10.89,3 10,3.89 10,5H3V19H2V21H22V19H21V5C21,3.89 20.11,3 19,3H12M12,5H19V19H12V5M5,11H7V13H5V11Z"/></svg>',
+  'window-shutter-open': '<svg viewBox="0 0 24 24"><path d="M3 4H21V8H19V20H17V8H7V20H5V8H3V4M8 9H16V11H8V9Z"/></svg>',
+  'window-closed': '<svg viewBox="0 0 24 24"><path d="M6,11H10V9H14V11H18V4H6V11M18,13H6V20H18V13M6,2H18A2,2 0 0,1 20,4V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V4A2,2 0 0,1 6,2Z"/></svg>'
+};
+
+function iconSvg(name) {
+  return MDI_ICONS[name] || '';
+}
+
+// ── Status bar ────────────────────────────────────────────────────────────────
+
+function updateStatusBar() {
+  const bar = document.getElementById('status-bar');
+  const chips = [];
+
+  // HSM chip — clickable, opens HSM picker
+  const hsm = (window.__hsmState || '').toLowerCase();
+  const hsmLabel = window.__hsmState || '—';
+  const hsmArmed = hsm && !hsm.includes('disarm') && hsm !== '—' && hsm !== '';
+  chips.push(`<span class="status-chip ${hsmArmed ? 'hsm-armed' : 'hsm-disarmed'}" data-action="hsm-picker" title="Click to change HSM state">
+    <span class="chip-dot"></span>HSM: ${escapeHtml(hsmLabel)}</span>`);
+
+  // Mode chip — clickable, opens mode picker
+  const modeName = window.__currentMode || '—';
+  chips.push(`<span class="status-chip mode-chip" data-action="mode-picker" title="Click to change mode">
+    ◐ Mode: ${escapeHtml(modeName)}</span>`);
+
+  // Presence chips — every slot configured as presence type with a device
+  // These are ALWAYS shown in the status bar, regardless of main dashboard visibility
+  // Also includes hidden presence tiles (preserved in statusBarPresenceDevices)
+  const presenceDevices = new Set();
+
+  // Collect from active presence tiles
+  for (const s of Object.values(cfg.slots)) {
+    if (s.kind === 'presence' && s.deviceId) {
+      presenceDevices.add(s.deviceId);
+    }
+  }
+
+  // Also include presence devices from hidden tiles
+  for (const deviceId of Object.keys(statusBarPresenceDevices)) {
+    presenceDevices.add(deviceId);
+  }
+
+  // Render a chip for each presence device
+  for (const deviceId of presenceDevices) {
+    const d = findDevice(deviceId);
+    if (!d) continue; // Device not found, skip
+    const present = getAttr(d, 'presence');
+    if (present === undefined) continue; // No presence attribute, skip
+
+    // Get label from: active slot → saved statusBarPresenceDevices → device name/label → deviceId
+    let label = '';
+
+    // Try active presence slot first
+    for (const s of Object.values(cfg.slots)) {
+      if (s.deviceId === deviceId && s.kind === 'presence' && s.label) {
+        label = s.label;
+        break;
+      }
+    }
+
+    // Try saved statusBarPresenceDevices label
+    if (!label && statusBarPresenceDevices[deviceId]?.label) {
+      label = statusBarPresenceDevices[deviceId].label;
+    }
+
+    // Fall back to device's own label/name
+    if (!label && d) {
+      label = d.label || d.name || '';
+    }
+
+    // Last resort: use deviceId
+    if (!label) {
+      label = deviceId;
+    }
+
+    const isPresent = present === 'present';
+    chips.push(`<span class="status-chip ${isPresent ? 'presence-home' : 'presence-away'}">
+      <span class="chip-dot"></span>${escapeHtml(label)}: ${isPresent ? 'Home' : 'Away'}</span>`);
+  }
+
+  bar.innerHTML = chips.join('');
+
+  // Bind click actions for clickable chips
+  bar.querySelectorAll('[data-action]').forEach(el => {
+    el.addEventListener('click', () => {
+      if (el.dataset.action === 'hsm-picker')  showHsmPicker();
+      if (el.dataset.action === 'mode-picker') showModePicker();
+    });
+  });
+}
+
+// ── View routing ──────────────────────────────────────────────────────────────
+
+function navigate(view) {
+  if (view === currentView) return;
+  currentView = view;
+  history.replaceState(null, '', `#${view === 'main' ? '' : view}`);
+  renderView();
+}
+
+function renderView() {
+  const isMain     = currentView === 'main';
+  const isDynamic  = currentView.startsWith('dynamic/');
+  const isCustom   = currentView.startsWith('custom/');
+
+  document.getElementById('view-main').style.display    = isMain    ? '' : 'none';
+  document.getElementById('view-dynamic').style.display = isDynamic ? '' : 'none';
+  document.getElementById('view-custom').style.display  = isCustom  ? '' : 'none';
+
+  document.getElementById('dash-title').textContent = isMain ? (cfg.title || 'Home') : '';
+
+  if (isDynamic) {
+    const key = currentView.replace('dynamic/', '');
+    renderDynamicDashboard(key);
+  }
+  if (isCustom) {
+    const name = currentView.replace('custom/', '');
+    renderCustomDashboard(name);
+  }
+
+  updateNavChips();
+}
+
+function readHash() {
+  const h = location.hash.replace(/^#\/?/, '') || 'main';
+  currentView = h || 'main';
+}
+
+window.addEventListener('hashchange', () => {
+  readHash();
+  renderView();
+});
+
+// ── Nav chips ─────────────────────────────────────────────────────────────────
+
+function updateNavChips() {
+  const nav = document.getElementById('dash-nav');
+  const chips = [];
+
+  // Build list of all dashboards with their keys
+  const allDashboards = [
+    { key: 'main', label: 'Main', kind: 'main', viewPath: 'main' },
+    ...DYNAMIC_GROUPS.map(g => ({ key: g.key, label: g.label, kind: 'dynamic', viewPath: 'dynamic/' + g.key })),
+    ...Object.entries(customDashboards).map(([name, dash]) =>
+      ({ key: 'custom/' + name, label: dash.title || name, kind: 'custom', viewPath: 'custom/' + name }))
+  ];
+
+  // Initialize defaults if empty (first load).
+  // Dynamic dashboards are opt-in; main and custom dashboards start visible.
+  if (!dashboardsOrder.length) {
+    dashboardsOrder = allDashboards.map(d => d.key);
+    dashboardsVisible = {};
+    allDashboards.forEach(d => { dashboardsVisible[d.key] = d.kind !== 'dynamic'; });
+  }
+
+  // Add new dashboards to the order list if they don't exist
+  for (const d of allDashboards) {
+    if (!dashboardsOrder.includes(d.key)) {
+      dashboardsOrder.push(d.key);
+      dashboardsVisible[d.key] = true; // New dashboards visible by default
+    }
+  }
+
+  // Render chips in stored order, skipping hidden ones
+  for (const key of dashboardsOrder) {
+    if (dashboardsVisible[key] === false) continue; // Skip hidden dashboards
+    const dashboard = allDashboards.find(d => d.key === key);
+    if (!dashboard) continue; // Skip if dashboard not found (e.g., deleted custom dashboard)
+
+    const isActive = currentView === dashboard.viewPath;
+    const cls = `nav-chip ${dashboard.kind}${isActive ? ' active' : ''}`;
+    chips.push(`<span class="${cls}" data-view="${dashboard.viewPath}">${escapeHtml(dashboard.label)}</span>`);
+  }
+
+  nav.innerHTML = chips.join('');
+  nav.classList.add('visible');
+
+  nav.querySelectorAll('[data-view]').forEach(el => {
+    el.addEventListener('click', () => navigate(el.dataset.view));
+  });
+}
+
+// ── Main dashboard layout ─────────────────────────────────────────────────────
+
+function buildLayout() {
+  applyCssVars();
+  const layout = getLayout();
+
+  // Grid sections
+  ['row1','row2','row3','row-bottom'].forEach(sectionId => {
+    const container = document.getElementById(sectionId);
+    if (!container) return;
+    const ids = layout[sectionId] || LAYOUT_DEFAULTS[sectionId] || [];
+    container.innerHTML = ids.map(id => slotHtml(id, sectionId)).join('') +
+      `<div class="tile-add" data-add-section="${sectionId}">+</div>`;
+  });
+
+  // Cameras column
+  const camContainer = document.getElementById('cameras');
+  if (camContainer) {
+    const ids = layout['cameras'] || LAYOUT_DEFAULTS['cameras'] || [];
+    camContainer.innerHTML = ids.map(id => slotHtml(id, 'cameras')).join('') +
+      `<div class="tile-add" data-add-section="cameras">+</div>`;
+  }
+
+  // Right column
+  const rightContainer = document.getElementById('right-col');
+  if (rightContainer) {
+    const ids = layout['right-col'] || LAYOUT_DEFAULTS['right-col'] || [];
+    rightContainer.innerHTML = ids.map(id => slotHtml(id, 'right-col')).join('') +
+      `<div class="tile-add" data-add-section="right-col">+</div>`;
+  }
+
+  // Bind events
+  document.querySelectorAll('[data-slot]').forEach(el => {
+    el.addEventListener('click', onTileClick);
+    bindDragEvents(el, el.dataset.section);
+    bindResizeHandle(el, el.dataset.slot);
+  });
+  document.querySelectorAll('.tile-remove').forEach(el => {
+    el.addEventListener('click', onRemoveTile);
+  });
+  document.querySelectorAll('[data-add-section]').forEach(el => {
+    el.addEventListener('click', () => onAddTile(el.dataset.addSection));
+  });
+}
+
+function slotHtml(slotId, sectionId) {
+  const s = cfg.slots[slotId] || {};
+  const rowSpan = s.rowSpan || 1;
+  // Convert user colSpan to CSS span units (doubled grid)
+  const cssSpan = colToSpan(s.colSpan);
+  const colAttr = cssSpan !== 2 ? ` data-col="${cssSpan}"` : '';
+  const rowAttr = rowSpan > 1 ? ` data-row="${rowSpan}"` : '';
+
+  if (s.kind === 'image') {
+    const orient = s.imageOrientation === 'portrait' ? ' portrait' : '';
+    return `<div class="image-tile${orient}" data-slot="${slotId}" data-section="${sectionId}"${colAttr}>
+      <div class="image-empty">${escapeHtml(s.label || slotId)}</div>
+      <span class="image-edit" data-edit="${slotId}">⋮</span>
+      <div class="resize-handle" data-resize="${slotId}"></div>
+    </div>`;
+  }
+
+  return `<div class="tile" data-slot="${slotId}" data-section="${sectionId}"${colAttr}${rowAttr}>
+    <button class="tile-remove" data-slot="${slotId}" title="Hide tile">×</button>
+    <span class="tile-edit" data-edit="${slotId}">⋮</span>
+    <span class="tile-battery" data-field="battery"></span>
+    <span class="tile-label"  data-field="label">${escapeHtml(s.label || slotId)}</span>
+    <span class="tile-value"  data-field="value"></span>
+    <span class="tile-drag-handle" title="Drag to reorder">⠿</span>
+    <div class="resize-handle" data-resize="${slotId}"></div>
+  </div>`;
+}
+
+// ── Tile rendering ────────────────────────────────────────────────────────────
+
+function renderTile(slotId) {
+  const el = document.querySelector(`[data-slot="${slotId}"]`);
+  if (!el) return;
+  const s = cfg.slots[slotId] || {};
+  const d = s.deviceId ? findDevice(s.deviceId) : null;
+
+  if (s.kind === 'hidden') { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+
+  if (s.kind === 'image') {
+    if (!el.classList.contains('image-tile')) {
+      // Shell changed from non-image to image — rebuild
+      const sectionId = el.dataset.section || '';
+      el.outerHTML = slotHtml(slotId, sectionId);
+      const newEl = document.querySelector(`[data-slot="${slotId}"]`);
+      if (newEl) { newEl.addEventListener('click', onTileClick); bindDragEvents(newEl, sectionId); }
+      return renderTile(slotId);
+    }
+    // Portrait class
+    el.classList.toggle('portrait', s.imageOrientation === 'portrait');
+
+    const rawUrl = d ? getImageUrl(d) : s.url || '';
+
+    if (rawUrl) {
+      // Respect the refresh interval the device itself declares.
+      // Hubitat's Virtual Image driver uses 'refreshRate' in seconds (SetRefreshRateInSeconds).
+      // Generic fallbacks ('refreshInterval', 'pollInterval') are also treated as seconds.
+      let refreshMs = 0; // 0 = refresh every poll cycle
+      if (d) {
+        const rateMin = getAttr(d, 'refreshRate');
+        if (rateMin != null) {
+          const parsed = parseFloat(rateMin);
+          if (!isNaN(parsed) && parsed > 0) refreshMs = parsed * 1000; // seconds → ms
+        } else {
+          const rateSecAttr = getAttr(d, 'refreshInterval') ?? getAttr(d, 'pollInterval');
+          if (rateSecAttr != null) {
+            const parsed = parseFloat(rateSecAttr);
+            if (!isNaN(parsed) && parsed > 0) refreshMs = parsed * 1000; // seconds → ms
+          }
+        }
+      }
+
+      const existingImg = el.querySelector('img');
+      const now = Date.now();
+      const last = imageLastRefreshed[slotId] || 0;
+      const due = !existingImg || refreshMs === 0 || (now - last >= refreshMs);
+
+      if (due) {
+        imageLastRefreshed[slotId] = now;
+        // Cache-bust so the browser re-fetches even when the raw URL hasn't changed.
+        const busted = rawUrl + (rawUrl.includes('?') ? '&' : '?') + '_t=' + now;
+        if (existingImg) {
+          existingImg.src = busted;
+          const lbl = el.querySelector('.image-label');
+          if (lbl) lbl.textContent = s.label || '';
+        } else {
+          el.innerHTML = `
+            <img src="${escapeHtml(busted)}" alt="">
+            <span class="image-label">${escapeHtml(s.label || '')}</span>
+            <span class="image-edit" data-edit="${slotId}">⋮</span>`;
+        }
+      }
+    } else {
+      el.innerHTML = `
+        <div class="image-empty">${escapeHtml(s.label || slotId)} (unmapped)</div>
+        <span class="image-edit" data-edit="${slotId}">⋮</span>`;
+    }
+    return;
+  }
+
+  // If shell was previously an image tile, rebuild as regular tile
+  if (el.classList.contains('image-tile')) {
+    const sectionId = el.dataset.section || '';
+    el.outerHTML = slotHtml(slotId, sectionId);
+    const newEl = document.querySelector(`[data-slot="${slotId}"]`);
+    if (newEl) {
+      newEl.addEventListener('click', onTileClick);
+      newEl.querySelector('.tile-remove')?.addEventListener('click', onRemoveTile);
+      bindDragEvents(newEl, sectionId);
+    }
+    return renderTile(slotId);
+  }
+
+  // Reset classes
+  el.className = 'tile';
+  if (el.dataset.section) el.dataset.section = el.dataset.section; // preserve
+  const labelEl   = el.querySelector('[data-field="label"]');
+  const valueEl   = el.querySelector('[data-field="value"]');
+  const batteryEl = el.querySelector('[data-field="battery"]');
+  if (labelEl)   labelEl.textContent  = s.label || slotId;
+  if (valueEl)   valueEl.textContent  = '';
+  if (batteryEl) batteryEl.textContent = '';
+
+  if (s.style === 'flat') el.classList.add('flat');
+  else if (s.style === 'info') el.classList.add('info');
+
+  switch (s.kind) {
+    case 'dashboard-link':
+      if (!s.style || s.style === 'auto') el.classList.add('info');
+      break;
+    case 'hsm': {
+      const state = window.__hsmState || '—';
+      if (valueEl) valueEl.textContent = state;
+      const armed = state && state !== 'disarmed' && state !== '—';
+      if (armed) el.classList.add('active');
+      break;
+    }
+    case 'mode':
+      if (valueEl) valueEl.textContent = window.__currentMode || '—';
+      break;
+    case 'switch': {
+      if (!s.deviceId) { el.classList.add('unmapped'); break; }
+      const on = getAttr(d, 'switch') === 'on';
+      if (s.style !== 'flat' && on) el.classList.add('active');
+      if (valueEl) valueEl.innerHTML = `${on ? iconSvg('toggle-switch') : iconSvg('toggle-switch-off')}<span>${on ? 'On' : 'Off'}</span>`;
+      break;
+    }
+    case 'bulb': {
+      if (!s.deviceId) { el.classList.add('unmapped'); break; }
+      const on = getAttr(d, 'switch') === 'on';
+      const level = getAttr(d, 'level');
+      if (s.style !== 'flat' && on) el.classList.add('active');
+      const levelStr = on && level != null ? `${level}%` : (on ? 'On' : 'Off');
+      if (valueEl) valueEl.innerHTML = `${iconSvg('lightbulb')}<span>${levelStr}</span>`;
+      break;
+    }
+    case 'presence': {
+      if (!s.deviceId) { el.classList.add('unmapped'); break; }
+      const presenceVal = getAttr(d, 'presence');
+      const isSleep = getAttr(d, 'sleeping') === 'sleeping';
+      if (presenceVal === 'present' && !isSleep) el.classList.add('active');
+      let icon, text;
+      if (presenceVal === 'present' && isSleep) {
+        icon = iconSvg('sleep');
+        text = 'Sleep';
+      } else if (presenceVal === 'present') {
+        icon = iconSvg('home-account');
+        text = 'Home';
+      } else {
+        icon = iconSvg('door-open');
+        text = 'Away';
+      }
+      if (valueEl) valueEl.innerHTML = `${icon}<span>${text}</span>`;
+      break;
+    }
+    case 'lock': {
+      if (!s.deviceId) { el.classList.add('unmapped'); break; }
+      const lk = getAttr(d, 'lock');
+      const battery = getAttr(d, 'battery');
+      if (lk === 'locked') el.classList.add('active');
+      else if (lk === 'unlocked') el.classList.add('alert');
+      if (batteryEl && battery != null) batteryEl.textContent = `${battery}%`;
+      if (valueEl) valueEl.innerHTML = `${lk === 'locked' ? iconSvg('lock') : iconSvg('lock-open')}<span>${lk || '—'}</span>`;
+      break;
+    }
+    case 'garage': {
+      if (!s.deviceId) { el.classList.add('unmapped'); break; }
+      const door = getAttr(d, 'door') || getAttr(d, 'contact');
+      const isOpen = door === 'open' || door === 'opening';
+      el.classList.remove('active', 'alert');
+      el.classList.add(isOpen ? 'alert' : 'active');
+      if (valueEl) valueEl.innerHTML = `${isOpen ? iconSvg('garage-open') : iconSvg('garage')}<span>${door || '—'}</span>`;
+      break;
+    }
+    case 'contact': {
+      if (!s.deviceId) { el.classList.add('unmapped'); break; }
+      const c = getAttr(d, 'contact');
+      if (c === 'open') el.classList.add('alert');
+      if (valueEl) valueEl.textContent = c || '';
+      break;
+    }
+    case 'water': {
+      if (!s.deviceId) { el.classList.add('unmapped'); break; }
+      const w = getAttr(d, 'water');
+      if (w === 'wet') el.classList.add('alert');
+      if (valueEl) valueEl.innerHTML = `${iconSvg('water-percent')}<span>${w || '—'}</span>`;
+      break;
+    }
+    case 'valve': {
+      if (!s.deviceId) { el.classList.add('unmapped'); break; }
+      const v = getAttr(d, 'valve');
+      if (v === 'open') el.classList.add('active');
+      if (valueEl) valueEl.innerHTML = `${iconSvg('valve')}<span>${v || '—'}</span>`;
+      break;
+    }
+    case 'shade': {
+      if (!s.deviceId) { el.classList.add('unmapped'); break; }
+      const shadePos = getAttr(d, 'windowShade');
+      if (shadePos === 'open') el.classList.add('active');
+      const isClosed = shadePos === 'closed';
+      if (valueEl) valueEl.innerHTML = `${isClosed ? iconSvg('window-closed') : iconSvg('window-shutter-open')}<span>${shadePos || '—'}</span>`;
+      break;
+    }
+    case 'text': {
+      if (!s.deviceId) { el.classList.add('unmapped'); break; }
+      if (!d) { if (valueEl) valueEl.textContent = '(device?)'; break; }
+      if (!s.attribute) { if (valueEl) valueEl.textContent = '(set attribute)'; break; }
+      const attrEntry = Array.isArray(d.attributes)
+        ? d.attributes.find(a => a.name === s.attribute) : null;
+      const v = attrEntry ? attrEntry.currentValue
+               : (d.attributes ? d.attributes[s.attribute] : undefined);
+      const rawUnit = (attrEntry && attrEntry.unit) ? attrEntry.unit : '';
+      const unit = rawUnit ? (rawUnit.startsWith('°') ? rawUnit : ` ${rawUnit}`) : '';
+      if (valueEl) valueEl.textContent = v != null ? `${String(v)}${unit}` : `(${s.attribute}?)`;
+      break;
+    }
+    case 'spacer':
+      el.classList.add('spacer');
+      if (labelEl) labelEl.textContent = 'spacer';
+      break;
+    default:
+      if (!s.deviceId) el.classList.add('unmapped');
+  }
+}
+
+function renderAll() {
+  document.getElementById('dash-title').textContent = cfg.title || 'Home';
+  Object.keys(cfg.slots).forEach(renderTile);
+  updateStatusBar();
+  updateSectionVisibility();
+
+  if (currentView.startsWith('dynamic/')) {
+    renderDynamicDashboard(currentView.replace('dynamic/', ''));
+  } else if (currentView.startsWith('custom/')) {
+    renderCustomDashboard(currentView.replace('custom/', ''));
+  }
+}
+
+/**
+ * Hide sections (rows, split) that are entirely empty (all tiles kind='hidden')
+ * when not in edit mode. In edit mode, always show so tiles can be edited.
+ */
+function updateSectionVisibility() {
+  const layout = getLayout();
+
+  // Grid section rows
+  ['row1','row2','row3','row-bottom'].forEach(sectionId => {
+    const el = document.getElementById(sectionId);
+    if (!el) return;
+    const ids = layout[sectionId] || LAYOUT_DEFAULTS[sectionId] || [];
+    const allHidden = ids.every(id => (cfg.slots[id] || {}).kind === 'hidden');
+    el.style.display = (!editMode && allHidden) ? 'none' : '';
+  });
+
+  // Cameras and right column (inside .split)
+  const camIds   = (layout['cameras']   || LAYOUT_DEFAULTS['cameras']   || []);
+  const rightIds = (layout['right-col'] || LAYOUT_DEFAULTS['right-col'] || []);
+  const camsHidden  = camIds.every(id  => (cfg.slots[id]  || {}).kind === 'hidden');
+  const rightHidden = rightIds.every(id => (cfg.slots[id] || {}).kind === 'hidden');
+  const splitEl = document.querySelector('.split');
+  if (splitEl) {
+    splitEl.style.display = (!editMode && camsHidden && rightHidden) ? 'none' : '';
+  }
+}
+
+// ── Tile interaction ──────────────────────────────────────────────────────────
+
+async function onTileClick(e) {
+  const slotId = e.currentTarget.dataset.slot;
+
+  // Ignore clicks on remove (×) and resize handle — they have their own handlers
+  if (e.target.closest('.tile-remove') || e.target.closest('.resize-handle')) return;
+
+  const editTarget = e.target.closest('[data-edit]');
+
+  // Edit icon always opens editor regardless of edit mode state
+  if (editTarget) {
+    e.preventDefault(); e.stopPropagation();
+    openTileEditor(slotId);
+    return;
+  }
+  // In edit mode, any click on the tile body opens the editor
+  if (editMode) {
+    openTileEditor(slotId);
+    return;
+  }
+
+  const s = cfg.slots[slotId] || {};
+  const d = s.deviceId ? findDevice(s.deviceId) : null;
+
+  // Spacer tiles: only interactive in edit mode (handled above via editMode check)
+  if (s.kind === 'spacer') return;
+
+  try {
+    switch (s.kind) {
+      case 'switch': {
+        if (!d) { openTileEditor(slotId); return; }
+        const on = getAttr(d, 'switch') === 'on';
+        const action = on ? 'off' : 'on';
+        if (s.requireConfirm) {
+          const ok = await showConfirm(`Turn ${s.label || 'switch'} ${action}?`);
+          if (!ok) return;
+        }
+        await sendCommand(s.deviceId, action);
+        break;
+      }
+      case 'bulb': {
+        if (!d) { openTileEditor(slotId); return; }
+        showBulbLevelPicker(s.deviceId, s.label);
+        return;
+      }
+      case 'lock': {
+        if (!d) { openTileEditor(slotId); return; }
+        const lk = getAttr(d, 'lock');
+        const lockAction = lk === 'locked' ? 'unlock' : 'lock';
+        // requireConfirm defaults to true for locks (safety-critical)
+        if (s.requireConfirm !== false) {
+          const ok = await showConfirm(`${lockAction === 'unlock' ? 'Unlock' : 'Lock'} ${s.label || 'door'}?`);
+          if (!ok) return;
+        }
+        await sendCommand(s.deviceId, lockAction);
+        break;
+      }
+      case 'garage': {
+        if (!d) { openTileEditor(slotId); return; }
+        const door = getAttr(d, 'door') || getAttr(d, 'contact');
+        const isOpen = door === 'open' || door === 'opening';
+        const garageAction = isOpen ? 'close' : 'open';
+        // requireConfirm defaults to true for garages (safety-critical)
+        if (s.requireConfirm !== false) {
+          const ok = await showConfirm(`${isOpen ? 'Close' : 'Open'} ${s.label || 'garage'}?`);
+          if (!ok) return;
+        }
+        await sendCommand(s.deviceId, garageAction);
+        break;
+      }
+      case 'mode': { showModePicker(); return; }
+      case 'hsm':  { showHsmPicker();  return; }
+      case 'dashboard-link': {
+        if (s.url) {
+          if (s.url.startsWith('#')) {
+            navigate(s.url.replace(/^#\/?/, '') || 'main');
+          } else if (s.urlNewTab) {
+            window.open(s.url, '_blank');
+          } else {
+            window.location.href = s.url;
+          }
+        } else {
+          openTileEditor(slotId);
+        }
+        return;
+      }
+      case 'image': {
+        // Tap → open lightbox with full-size image
+        const imgUrl = d ? getImageUrl(d) : s.url || '';
+        if (imgUrl) openLightbox(imgUrl, s.label || '');
+        return;
+      }
+      case 'valve': {
+        if (!d) { openTileEditor(slotId); return; }
+        const v = getAttr(d, 'valve');
+        const isOpen = v === 'open';
+        console.log('Valve tile clicked:', { deviceId, label: s.label, valveTimer: s.valveTimer, isOpen });
+        // If timer is enabled, show duration picker instead of direct toggle
+        if (s.valveTimer) {
+          console.log('Showing valve timer picker');
+          showValveTimerPicker(s.deviceId, s.label, isOpen);
+          return;
+        }
+        // Direct toggle
+        const valveAction = isOpen ? 'close' : 'open';
+        if (s.requireConfirm) {
+          const ok = await showConfirm(`${isOpen ? 'Close' : 'Open'} ${s.label || 'valve'}?`);
+          if (!ok) return;
+        }
+        await sendCommand(s.deviceId, valveAction);
+        break;
+      }
+      case 'water': {
+        if (!d) { openTileEditor(slotId); return; }
+        // Water sensors are read-only, just open editor
+        openTileEditor(slotId);
+        return;
+      }
+      case 'shade': {
+        if (!d) { openTileEditor(slotId); return; }
+        const shadePos = getAttr(d, 'windowShade');
+        console.log('Shade tile clicked:', { deviceId: s.deviceId, label: s.label, shadePos });
+        showShadePositionPicker(s.deviceId, s.label, shadePos);
+        return;
+      }
+      default: openTileEditor(slotId); return;
+    }
+    setTimeout(refreshAll, 400);
+  } catch (err) {
+    console.error('Command failed', err);
+    flashErr(e.currentTarget);
+  }
+}
+
+function flashErr(tile) {
+  const orig = tile.style.outline;
+  tile.style.outline = '2px solid var(--alert)';
+  setTimeout(() => { tile.style.outline = orig; }, 600);
+}
+
+// ── Confirmation modal ────────────────────────────────────────────────────────
+
+let confirmResolve = null;
+const confirmModal = document.getElementById('confirm-modal');
+
+function showConfirm(message) {
+  return new Promise(resolve => {
+    confirmResolve = resolve;
+    document.getElementById('confirm-title').textContent = 'Confirm';
+    document.getElementById('confirm-body').textContent = message;
+    confirmModal.classList.add('open');
+  });
+}
+
+document.getElementById('confirm-yes').addEventListener('click', () => {
+  confirmModal.classList.remove('open');
+  if (confirmResolve) { confirmResolve(true); confirmResolve = null; }
+});
+document.getElementById('confirm-no').addEventListener('click', () => {
+  confirmModal.classList.remove('open');
+  if (confirmResolve) { confirmResolve(false); confirmResolve = null; }
+});
+
+// ── Lightbox ──────────────────────────────────────────────────────────────────
+
+function openLightbox(url, label) {
+  const modal = document.getElementById('lightbox-modal');
+  const img   = document.getElementById('lightbox-img');
+  const lbl   = document.getElementById('lightbox-label');
+  if (!modal || !img) return;
+  img.src = url;
+  if (lbl) lbl.textContent = label || '';
+  modal.classList.add('open');
+}
+
+document.getElementById('lightbox-modal').addEventListener('click', e => {
+  if (e.target.id !== 'lightbox-close' && e.target.id !== 'lightbox-modal' && e.target.id !== 'lightbox-img') return;
+  document.getElementById('lightbox-modal').classList.remove('open');
+});
+document.getElementById('lightbox-close').addEventListener('click', () => {
+  document.getElementById('lightbox-modal').classList.remove('open');
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.getElementById('lightbox-modal').classList.remove('open');
+});
+
+// ── Picker (mode / HSM) ───────────────────────────────────────────────────────
+
+const pickerModal = document.getElementById('picker-modal');
+function showPicker(title, options, currentValue, onSelect) {
+  document.getElementById('picker-title').textContent = title;
+  const container = document.getElementById('picker-options');
+  container.innerHTML = '';
+  options.forEach(opt => {
+    const btn = document.createElement('button');
+    btn.className = 'btn' + (opt.value === currentValue ? '' : ' secondary');
+    btn.textContent = opt.label;
+    btn.style.cssText = 'justify-content:flex-start;padding:12px 16px;font-size:15px;';
+    btn.addEventListener('click', async () => {
+      pickerModal.classList.remove('open');
+      try { await onSelect(opt.value); setTimeout(refreshAll, 400); }
+      catch (e) { alert('Action failed: ' + (e.message || e)); }
+    });
+    container.appendChild(btn);
+  });
+  pickerModal.classList.add('open');
+}
+document.getElementById('picker-cancel').addEventListener('click', () => {
+  pickerModal.classList.remove('open');
+});
+function showModePicker() {
+  if (!hubModes.length) { alert('No modes loaded — test the hub connection first.'); return; }
+  const cur = window.__currentMode;
+  showPicker('Set Hubitat Mode',
+    hubModes.map(m => ({ value: m.name, label: m.name + (m.name === cur ? '  ✓' : '') })),
+    cur, name => setMode(name));
+}
+async function setMode(name) {
+  const m = hubModes.find(x => x.name === name);
+  if (m) await api(`/modes/${m.id}`);
+}
+function showHsmPicker() {
+  const cur = (window.__hsmState || '').toLowerCase();
+  const options = [
+    { value:'armAway',      label:'Arm — Away'   + (cur.includes('away')  ? '  ✓' : '') },
+    { value:'armHome',      label:'Arm — Home'   + (cur.includes('home') && !cur.includes('night') ? '  ✓' : '') },
+    { value:'armNight',     label:'Arm — Night'  + (cur.includes('night') ? '  ✓' : '') },
+    { value:'disarm',       label:'Disarm'       + (cur === 'disarmed' || cur === '' ? '  ✓' : '') },
+    { value:'armRules',     label:'Arm Rules Only' },
+    { value:'disarmRules',  label:'Disarm Rules Only' },
+    { value:'cancelAlerts', label:'Cancel Alerts' },
+  ];
+  showPicker('Set HSM State', options, null, async cmd => {
+    const r = await fetch(hubPath(`/hsm/${cmd}`), { credentials: 'same-origin' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  });
+}
+
+async function showValveTimerPicker(deviceId, label, isCurrentlyOpen) {
+  const modal = document.getElementById('valve-timer-modal');
+  if (!modal) {
+    console.error('Valve timer modal not found');
+    return;
+  }
+  document.getElementById('valve-title').textContent = `${label || 'Valve'} - How long?`;
+  modal.classList.add('open');
+  console.log('Valve modal opened:', modal.classList);
+
+  const durations = [
+    { btn: 'valve-open-5', minutes: 5 },
+    { btn: 'valve-open-30', minutes: 30 },
+    { btn: 'valve-open-60', minutes: 60 },
+    { btn: 'valve-open-90', minutes: 90 },
+  ];
+
+  // Set up timer buttons
+  durations.forEach(({ btn, minutes }) => {
+    const el = document.getElementById(btn);
+    if (el) {
+      el.onclick = async () => {
+        modal.classList.remove('open');
+        // Try sendCommand with secondary parameter: /devices/{id}/open/{minutes}
+        // If the driver doesn't support this, it will fail and we fallback to simple 'open'
+        await sendCommand(deviceId, 'open', String(minutes)).catch(() => {
+          // Fallback to simple 'open' if the driver doesn't support timer syntax
+          return sendCommand(deviceId, 'open');
+        });
+        setTimeout(refreshAll, 400);
+      };
+    }
+  });
+
+  // Close valve button
+  const closeBtn = document.getElementById('valve-close');
+  if (closeBtn) {
+    closeBtn.onclick = async () => {
+      modal.classList.remove('open');
+      await sendCommand(deviceId, 'close');
+      setTimeout(refreshAll, 400);
+    };
+  }
+
+  // Cancel button - just close the modal
+  const cancelBtn = document.getElementById('valve-cancel');
+  if (cancelBtn) {
+    cancelBtn.onclick = () => {
+      modal.classList.remove('open');
+    };
+  }
+}
+
+async function showShadePositionPicker(deviceId, label, currentPos) {
+  const modal = document.getElementById('shade-position-modal');
+  if (!modal) {
+    console.error('Shade position modal not found');
+    return;
+  }
+  document.getElementById('shade-title').textContent = `${label || 'Shade'} Position`;
+  modal.classList.add('open');
+  console.log('Shade modal opened:', modal.classList);
+
+  const positions = [
+    { btn: 'shade-open', cmd: 'open', label: 'Open' },
+    { btn: 'shade-75', cmd: 'setPosition', value: 75 },
+    { btn: 'shade-50', cmd: 'setPosition', value: 50 },
+    { btn: 'shade-25', cmd: 'setPosition', value: 25 },
+    { btn: 'shade-close', cmd: 'close', label: 'Close' },
+  ];
+
+  positions.forEach(({ btn, cmd, value, label: btnLabel }) => {
+    const el = document.getElementById(btn);
+    if (el) {
+      el.onclick = async () => {
+        modal.classList.remove('open');
+        // sendCommand takes (deviceId, command, secondary) — don't combine them
+        if (value !== undefined) {
+          await sendCommand(deviceId, cmd, String(value));
+        } else {
+          await sendCommand(deviceId, cmd);
+        }
+        setTimeout(refreshAll, 400);
+      };
+    }
+  });
+
+  // Cancel button - just close the modal
+  const cancelBtn = document.getElementById('shade-cancel');
+  if (cancelBtn) {
+    cancelBtn.onclick = () => {
+      modal.classList.remove('open');
+    };
+  }
+}
+
+async function showBulbLevelPicker(deviceId, label) {
+  const modal = document.getElementById('bulb-level-modal');
+  if (!modal) return;
+  document.getElementById('bulb-title').textContent = `${label || 'Light'} Level`;
+  modal.classList.add('open');
+
+  const levels = [
+    { btn: 'bulb-100', level: 100 },
+    { btn: 'bulb-75',  level: 75 },
+    { btn: 'bulb-50',  level: 50 },
+    { btn: 'bulb-25',  level: 25 },
+  ];
+
+  levels.forEach(({ btn, level }) => {
+    const el = document.getElementById(btn);
+    if (el) {
+      el.onclick = async () => {
+        modal.classList.remove('open');
+        await sendCommand(deviceId, 'setLevel', String(level));
+        setTimeout(refreshAll, 400);
+      };
+    }
+  });
+
+  const offBtn = document.getElementById('bulb-off');
+  if (offBtn) {
+    offBtn.onclick = async () => {
+      modal.classList.remove('open');
+      await sendCommand(deviceId, 'off');
+      setTimeout(refreshAll, 400);
+    };
+  }
+
+  const cancelBtn = document.getElementById('bulb-cancel');
+  if (cancelBtn) {
+    cancelBtn.onclick = () => modal.classList.remove('open');
+  }
+}
+
+function showDynKindPicker(deviceId, label, groupKey) {
+  const currentKind = dynamicOverrides[deviceId] || '__auto__';
+  const options = [
+    { value: '__auto__', label: 'Auto-detect (reset to default)' },
+    { value: 'switch',   label: 'Switch (on/off)' },
+    { value: 'bulb',     label: 'Light / Dimmer' },
+    { value: 'lock',     label: 'Lock' },
+    { value: 'contact',  label: 'Contact Sensor' },
+    { value: 'presence', label: 'Presence' },
+    { value: 'shade',    label: 'Window Shade' },
+    { value: 'valve',    label: 'Valve' },
+    { value: 'water',    label: 'Water Sensor' },
+  ].map(o => ({ ...o, label: o.label + (o.value === currentKind ? '  ✓' : '') }));
+
+  showPicker(`Reclassify: ${label}`, options, currentKind, async val => {
+    if (val === '__auto__') {
+      delete dynamicOverrides[deviceId];
+    } else {
+      dynamicOverrides[deviceId] = val;
+    }
+    await saveDynamicConfig();
+    // Re-render the current group (device may have left it)
+    renderDynamicDashboard(groupKey);
+  });
+}
+
+// ── Edit mode ─────────────────────────────────────────────────────────────────
+
+document.getElementById('edit-mode-btn').addEventListener('click', e => {
+  editMode = !editMode;
+  document.body.classList.toggle('edit-mode', editMode);
+  e.currentTarget.classList.toggle('on', editMode);
+  // Show/hide add-device button in custom view
+  const addBtn = document.getElementById('custom-add-tile');
+  if (addBtn) addBtn.style.display = editMode && currentView.startsWith('custom/') ? '' : 'none';
+  // Re-evaluate section visibility (hidden sections show in edit mode)
+  updateSectionVisibility();
+});
+
+// Hide a tile (soft-delete): sets kind='hidden' so it shows as ghost in edit mode
+// and disappears in normal mode. Dense grid-auto-flow fills the gap.
+function onRemoveTile(e) {
+  e.stopPropagation();
+  e.preventDefault();
+  const slotId = e.currentTarget.dataset.slot;
+  if (!slotId) return;
+
+  const s = cfg.slots[slotId] || {};
+
+  // If this is a presence tile, preserve it in statusBarPresenceDevices
+  // so the status bar pill still shows even though the tile is hidden
+  if (s.kind === 'presence' && s.deviceId) {
+    const d = findDevice(s.deviceId);
+    statusBarPresenceDevices[s.deviceId] = {
+      label: s.label || (d && (d.label || d.name)) || '',
+      kind: 'presence'
+    };
+  }
+
+  s.kind = 'hidden';
+  cfg.slots[slotId] = s;
+  saveConfigCache();
+  markDirty();
+  renderTile(slotId);   // re-render in place (hides or shows ghost)
+  updateStatusBar();    // presence chips may change
+}
+
+// Add a new empty tile to a section
+function onAddTile(sectionId) {
+  const id = generateSlotId();
+  cfg.slots[id] = { label: 'New Tile', kind: 'hidden' };
+  const layout = cfg.layout || JSON.parse(JSON.stringify(LAYOUT_DEFAULTS));
+  if (!layout[sectionId]) layout[sectionId] = [];
+  layout[sectionId].push(id);
+  cfg.layout = layout;
+  saveConfigCache();
+  markDirty();
+  buildLayout();
+  openTileEditor(id);
+}
+
+// ── Drag-to-reorder (edit mode) ───────────────────────────────────────────────
+
+function bindDragEvents(el, sectionId) {
+  el.setAttribute('draggable', 'true');
+
+  el.addEventListener('dragstart', e => {
+    if (!editMode) { e.preventDefault(); return; }
+    dragSlot    = el.dataset.slot;
+    dragSection = sectionId;
+    e.dataTransfer.effectAllowed = 'move';
+    setTimeout(() => el.classList.add('dragging'), 0);
+  });
+  el.addEventListener('dragend', () => {
+    el.classList.remove('dragging');
+    document.querySelectorAll('.drag-over').forEach(t => t.classList.remove('drag-over'));
+    dragSlot = null; dragSection = null;
+  });
+  el.addEventListener('dragover', e => {
+    if (!editMode || !dragSlot) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    el.classList.add('drag-over');
+  });
+  el.addEventListener('dragleave', () => {
+    el.classList.remove('drag-over');
+  });
+  el.addEventListener('drop', e => {
+    e.preventDefault();
+    el.classList.remove('drag-over');
+    const targetSlot = el.dataset.slot;
+    if (!dragSlot || dragSlot === targetSlot) return;
+
+    const layout = cfg.layout || JSON.parse(JSON.stringify(LAYOUT_DEFAULTS));
+    // Find which section each belongs to
+    let fromSection = null, toSection = null;
+    for (const [sec, ids] of Object.entries(layout)) {
+      if (ids.includes(dragSlot))  fromSection = sec;
+      if (ids.includes(targetSlot)) toSection  = sec;
+    }
+    if (!fromSection || !toSection) return;
+
+    // Remove from source
+    const fromArr = layout[fromSection];
+    fromArr.splice(fromArr.indexOf(dragSlot), 1);
+
+    // Insert before target in destination
+    const toArr = layout[toSection];
+    const toIdx = toArr.indexOf(targetSlot);
+    if (toIdx === -1) toArr.push(dragSlot);
+    else toArr.splice(toIdx, 0, dragSlot);
+
+    cfg.layout = layout;
+    saveConfigCache();
+    markDirty();
+    buildLayout();
+    renderAll();
+    dragSlot = null; dragSection = null;
+  });
+}
+
+// ── Corner resize handle ─────────────────────────────────────────────────────
+// Pointer-capture drag on the bottom-right corner resizes colSpan/rowSpan and
+// saves to cfg. Works for both .tile and .image-tile elements in grid sections.
+
+function bindResizeHandle(tileEl, slotId) {
+  const handle = tileEl.querySelector('.resize-handle');
+  if (!handle) return;
+
+  handle.addEventListener('pointerdown', e => {
+    if (!editMode) return;
+    e.stopPropagation(); e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+
+    const sectionEl = tileEl.parentElement;
+    const userCols = cfg.gridCols || 3;
+    const rowH = parseFloat(getComputedStyle(document.documentElement)
+      .getPropertyValue('--row-h')) || 80;
+    const gap = parseFloat(getComputedStyle(document.documentElement)
+      .getPropertyValue('--gap')) || 6;
+
+    // Width of 1 user-column (= 2 internal CSS units + gap between them)
+    const cssColCount = userCols * 2;
+    const cssUnitW = sectionEl
+      ? (sectionEl.offsetWidth - gap * (cssColCount - 1)) / cssColCount
+      : 50;
+    const userColW = cssUnitW * 2 + gap; // 2 CSS units + 1 gap
+
+    const startX = e.clientX, startY = e.clientY;
+    const startW = tileEl.offsetWidth, startH = tileEl.offsetHeight;
+
+    // Valid user-column snapping values (0.5, 1, 2, 3 — capped at userCols)
+    const validCols = [0.5, 1, 2, 3].filter(c => c <= userCols);
+
+    let snapCol = cfg.slots[slotId]?.colSpan ?? 1;
+    let snapRow = cfg.slots[slotId]?.rowSpan ?? 1;
+
+    function onMove(ev) {
+      const dw = ev.clientX - startX;
+      const dh = ev.clientY - startY;
+      const rawUserCols = (startW + dw) / userColW;
+      snapCol = validCols.reduce((p, c) => Math.abs(c - rawUserCols) < Math.abs(p - rawUserCols) ? c : p);
+      snapRow = Math.max(1, Math.min(4, Math.round((startH + dh + gap / 2) / (rowH + gap))));
+      // Apply inline preview using CSS span units
+      const cssSpan = colToSpan(snapCol);
+      tileEl.style.gridColumn = `span ${cssSpan}`;
+      tileEl.style.gridRow    = snapRow > 1 ? `span ${snapRow}` : '';
+    }
+
+    function onUp() {
+      handle.removeEventListener('pointermove', onMove);
+      tileEl.style.gridColumn = '';
+      tileEl.style.gridRow = '';
+      const s = cfg.slots[slotId] || {};
+      if (snapCol !== 1) s.colSpan = snapCol; else delete s.colSpan;
+      if (snapRow > 1)   s.rowSpan = snapRow; else delete s.rowSpan;
+      cfg.slots[slotId] = s;
+      saveConfigCache();
+      markDirty();
+      buildLayout(); renderAll();
+    }
+
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup',     onUp, { once: true });
+    handle.addEventListener('pointercancel', onUp, { once: true });
+  });
+}
+
+// ── Dynamic dashboards ────────────────────────────────────────────────────────
+
+function renderDynamicDashboard(key) {
+  const group = DYNAMIC_GROUPS.find(g => g.key === key);
+  const grid  = document.getElementById('dynamic-grid');
+  if (!group || !grid) return;
+
+  document.getElementById('dash-title').textContent = group.label;
+
+  let matched = devices.filter(group.match);
+  if (!matched.length) {
+    grid.innerHTML = '<div style="color:#555;padding:20px;font-size:13px">No devices found for this group.</div>';
+    return;
+  }
+
+  // Apply stored drag order if present; otherwise sort battery by level ascending
+  const storedOrder = dynamicOrder[key];
+  if (storedOrder && storedOrder.length) {
+    matched = [...matched].sort((a, b) => {
+      const ia = storedOrder.indexOf(String(a.id));
+      const ib = storedOrder.indexOf(String(b.id));
+      if (ia === -1 && ib === -1) return 0;
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
+  } else if (key === 'battery') {
+    // Battery page: sort ascending by battery level (lowest first)
+    matched = [...matched].sort((a, b) => {
+      const ba = getAttr(a, 'battery') ?? 999;
+      const bb = getAttr(b, 'battery') ?? 999;
+      return ba - bb;
+    });
+  }
+
+  // Record device ID order for drag ops
+  const deviceIdOrder = matched.map(d => String(d.id));
+
+  grid.innerHTML = matched.map(d => {
+    const hidden   = !!dynamicHidden[String(d.id)];
+    const kind     = dynKindForDevice(d);
+    const battery  = getAttr(d, 'battery');
+    const valTxt   = dynValueForDevice(d, kind);
+    const isActive = dynIsActive(d, kind);
+
+    let cls = 'tile' + (hidden ? ' dyn-hidden' : '');
+    if (!hidden) {
+      if (key === 'battery' && battery != null) {
+        // Color-code by battery level: red <20%, amber 20-50%, green >50%
+        const pct = Number(battery);
+        if (pct < 20)      cls += ' batt-red';
+        else if (pct < 50) cls += ' batt-amber';
+        else               cls += ' batt-green';
+      } else if (kind === 'garage') {
+        cls += isActive ? ' alert' : ' active'; // open=red, closed=green
+      } else if (isActive) {
+        cls += ' active';
+      }
+    }
+
+    const overrideLabel = dynamicOverrides[String(d.id)] ? ` (${dynamicOverrides[String(d.id)]})` : '';
+    return `<div class="${cls}" data-dyn-id="${d.id}" data-dyn-key="${key}">
+      ${battery != null ? `<span class="tile-battery">${battery}%</span>` : ''}
+      <span class="tile-edit" title="Reclassify">⋮</span>
+      <span class="tile-label">${escapeHtml(d.label || d.name)}${escapeHtml(overrideLabel)}</span>
+      <span class="tile-value">${valTxt}</span>
+      <button class="tile-hide-toggle" data-dyn-id="${d.id}">${hidden ? 'Show' : 'Hide'}</button>
+      <span class="tile-drag-handle" title="Drag to reorder">⠿</span>
+    </div>`;
+  }).join('');
+
+  // Bind click and drag handlers
+  grid.querySelectorAll('[data-dyn-id]').forEach(el => {
+    if (el.classList.contains('tile-hide-toggle')) {
+      el.addEventListener('click', e => {
+        e.stopPropagation();
+        const id = e.currentTarget.dataset.dynId;
+        dynamicHidden[id] = !dynamicHidden[id];
+        if (!dynamicHidden[id]) delete dynamicHidden[id];
+        saveDynamicConfig();
+        renderDynamicDashboard(key);
+      });
+    } else {
+      el.addEventListener('click', () => onDynTileClick(el.dataset.dynId, key));
+    }
+  });
+
+  bindDynDragEvents(grid, key, deviceIdOrder);
+}
+
+function dynKindForDevice(d) {
+  const override = dynamicOverrides[String(d.id)];
+  if (override) return override;
+  if ((hasCapability(d,'SwitchLevel') || getAttr(d,'level') !== undefined) &&
+      (hasCapability(d,'Switch') || getAttr(d,'switch') !== undefined)) return 'bulb';
+  if (hasCapability(d,'Switch') || getAttr(d,'switch') !== undefined) return 'switch';
+  if (hasCapability(d,'Lock')   || getAttr(d,'lock')   !== undefined) return 'lock';
+  if (hasCapability(d,'GarageDoorControl') || getAttr(d,'door') !== undefined) return 'garage';
+  if (hasCapability(d,'ContactSensor') || getAttr(d,'contact') !== undefined) return 'contact';
+  if (hasCapability(d,'PresenceSensor') || getAttr(d,'presence') !== undefined) return 'presence';
+  if (hasCapability(d,'WindowShade') || getAttr(d,'windowShade') !== undefined) return 'shade';
+  if (hasCapability(d,'Valve') || getAttr(d,'valve') !== undefined) return 'valve';
+  if (hasCapability(d,'WaterSensor') || getAttr(d,'water') !== undefined) return 'water';
+  return 'text';
+}
+
+function dynValueForDevice(d, kind) {
+  switch (kind) {
+    case 'bulb': {
+      const on = getAttr(d,'switch') === 'on';
+      const level = getAttr(d,'level');
+      const levelStr = on && level != null ? `${level}%` : (on ? 'On' : 'Off');
+      return `${iconSvg('lightbulb')}<span>${levelStr}</span>`;
+    }
+    case 'switch': {
+      const on = getAttr(d,'switch') === 'on';
+      return `${on ? iconSvg('toggle-switch') : iconSvg('toggle-switch-off')}<span>${on ? 'On' : 'Off'}</span>`;
+    }
+    case 'lock': {
+      const lk = getAttr(d,'lock');
+      const text = lk === 'locked' ? 'Locked' : 'Unlocked';
+      return `${lk === 'locked' ? iconSvg('lock') : iconSvg('lock-open')}<span>${text}</span>`;
+    }
+    case 'garage': {
+      const door = getAttr(d,'door') || getAttr(d,'contact') || '';
+      const isOpen = door === 'open' || door === 'opening';
+      return `${isOpen ? iconSvg('garage-open') : iconSvg('garage')}<span>${door}</span>`;
+    }
+    case 'contact':  return getAttr(d,'contact')  || '';
+    case 'presence': {
+      const presenceVal = getAttr(d, 'presence');
+      const isSleep = getAttr(d, 'sleeping') === 'sleeping';
+      let icon, text;
+      if (presenceVal === 'present' && isSleep) {
+        icon = iconSvg('sleep');
+        text = 'Sleep';
+      } else if (presenceVal === 'present') {
+        icon = iconSvg('home-account');
+        text = 'Home';
+      } else {
+        icon = iconSvg('door-open');
+        text = 'Away';
+      }
+      return `${icon}<span>${text}</span>`;
+    }
+    case 'shade': {
+      const shadePos = getAttr(d, 'windowShade');
+      const isClosed = shadePos === 'closed';
+      return `${isClosed ? iconSvg('window-closed') : iconSvg('window-shutter-open')}<span>${shadePos || '—'}</span>`;
+    }
+    case 'water': {
+      const w = getAttr(d, 'water');
+      return `${iconSvg('water-percent')}<span>${w || '—'}</span>`;
+    }
+    case 'valve': {
+      const v = getAttr(d, 'valve');
+      return `${iconSvg('valve')}<span>${v || '—'}</span>`;
+    }
+    default: {
+      const batt = getAttr(d,'battery');
+      return batt != null ? `${batt}%` : '';
+    }
+  }
+}
+
+function dynIsActive(d, kind) {
+  switch (kind) {
+    case 'bulb':     return getAttr(d,'switch')   === 'on';
+    case 'switch':   return getAttr(d,'switch')   === 'on';
+    case 'lock':     return getAttr(d,'lock')     === 'locked';
+    case 'garage':   return getAttr(d,'door')     === 'open' || getAttr(d,'door') === 'opening';
+    case 'contact':  return getAttr(d,'contact')  === 'open';
+    case 'presence': return getAttr(d,'presence') === 'present';
+    case 'water':    return getAttr(d,'water')    === 'wet';
+    case 'valve':    return getAttr(d,'valve')    === 'open';
+    case 'shade':    return getAttr(d,'windowShade') === 'open';
+    default: return false;
+  }
+}
+
+async function onDynTileClick(deviceId, groupKey) {
+  const d = findDevice(deviceId);
+  if (!d) return;
+  if (editMode) {
+    showDynKindPicker(deviceId, d.label || d.name, groupKey);
+    return;
+  }
+  const kind = dynKindForDevice(d);
+  console.log('Dynamic tile clicked:', { deviceId, name: d.label || d.name, kind, hasValve: getAttr(d, 'valve') !== undefined });
+  try {
+    if (kind === 'bulb') {
+      showBulbLevelPicker(deviceId, d.label || d.name);
+      return;
+    } else if (kind === 'switch') {
+      const on = getAttr(d,'switch') === 'on';
+      await sendCommand(deviceId, on ? 'off' : 'on');
+    } else if (kind === 'lock') {
+      const lk = getAttr(d,'lock');
+      const lockAction = lk === 'locked' ? 'unlock' : 'lock';
+      const ok = await showConfirm(`${lockAction === 'unlock' ? 'Unlock' : 'Lock'} ${d.label || d.name}?`);
+      if (!ok) return;
+      await sendCommand(deviceId, lockAction);
+    } else if (kind === 'garage') {
+      const door = getAttr(d,'door') || getAttr(d,'contact');
+      const isOpen = door === 'open' || door === 'opening';
+      const ok = await showConfirm(`${isOpen ? 'Close' : 'Open'} ${d.label || d.name}?`);
+      if (!ok) return;
+      await sendCommand(deviceId, isOpen ? 'close' : 'open');
+    } else if (kind === 'shade') {
+      const shadePos = getAttr(d, 'windowShade');
+      showShadePositionPicker(deviceId, d.label || d.name, shadePos);
+      return;
+    } else if (kind === 'valve') {
+      const v = getAttr(d, 'valve');
+      const isOpen = v === 'open';
+      // For dynamic dashboards, always show timer picker for valves
+      showValveTimerPicker(deviceId, d.label || d.name, isOpen);
+      return;
+    }
+    setTimeout(() => { refreshAll(); renderDynamicDashboard(groupKey); }, 400);
+  } catch (err) { console.error('Dynamic tile command failed', err); }
+}
+
+function bindDynDragEvents(grid, key, deviceIdOrder) {
+  grid.querySelectorAll('.tile[data-dyn-id]').forEach(el => {
+    el.setAttribute('draggable', 'true');
+
+    el.addEventListener('dragstart', e => {
+      if (!editMode) { e.preventDefault(); return; }
+      dragDynId = el.dataset.dynId;
+      e.dataTransfer.effectAllowed = 'move';
+      setTimeout(() => el.classList.add('dragging'), 0);
+    });
+    el.addEventListener('dragend', () => {
+      el.classList.remove('dragging');
+      grid.querySelectorAll('.drag-over').forEach(t => t.classList.remove('drag-over'));
+      dragDynId = null;
+    });
+    el.addEventListener('dragover', e => {
+      if (!editMode || !dragDynId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      el.classList.add('drag-over');
+    });
+    el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+    el.addEventListener('drop', e => {
+      e.preventDefault();
+      el.classList.remove('drag-over');
+      const targetId = el.dataset.dynId;
+      if (!dragDynId || dragDynId === targetId) return;
+
+      // Build current order (use stored or rendered)
+      const current = (dynamicOrder[key] && dynamicOrder[key].length)
+        ? [...dynamicOrder[key]]
+        : [...deviceIdOrder];
+
+      // Ensure both IDs are in current (may have been added since last save)
+      if (!current.includes(dragDynId))  current.push(dragDynId);
+      if (!current.includes(targetId))   current.push(targetId);
+
+      const fromIdx = current.indexOf(dragDynId);
+      current.splice(fromIdx, 1);
+      const toIdx = current.indexOf(targetId);
+      if (toIdx === -1) current.push(dragDynId);
+      else current.splice(toIdx, 0, dragDynId);
+
+      dynamicOrder[key] = current;
+      dragDynId = null;
+      saveDynamicConfig();
+      renderDynamicDashboard(key);
+    });
+  });
+}
+
+async function saveDynamicConfig() {
+  try {
+    await pushConfigToWorker({ dynamic: {
+      hidden:    dynamicHidden,
+      order:     Object.keys(dynamicOrder).length     ? dynamicOrder     : undefined,
+      overrides: Object.keys(dynamicOverrides).length ? dynamicOverrides : undefined,
+    }});
+    saveConfigCache();
+  } catch (e) { console.warn('Failed to save dynamic config', e); }
+}
+
+// ── Custom dashboards ─────────────────────────────────────────────────────────
+
+function renderCustomDashboard(name) {
+  const dash = customDashboards[name];
+  const grid  = document.getElementById('custom-grid');
+  if (!grid) return;
+
+  document.getElementById('dash-title').textContent = dash ? (dash.title || name) : name;
+
+  // Apply per-dashboard column count (or fall back to auto-fill)
+  if (dash && dash.gridCols) {
+    grid.style.gridTemplateColumns = `repeat(${dash.gridCols}, 1fr)`;
+    grid.style.gridAutoRows = 'var(--row-h, 80px)';
+  } else {
+    grid.style.gridTemplateColumns = '';
+    grid.style.gridAutoRows = '';
+  }
+
+  const addBtn = document.getElementById('custom-add-tile');
+  if (addBtn) addBtn.style.display = editMode ? '' : 'none';
+
+  if (!dash || !dash.tiles || !dash.tiles.length) {
+    grid.innerHTML = '<div style="color:#555;padding:20px;font-size:13px">No tiles yet — enter edit mode and click + Add Device.</div>';
+    return;
+  }
+
+  grid.innerHTML = dash.tiles.map(tile => {
+    const d      = findDevice(tile.deviceId);
+    const kind   = tile.kind || dynKindForDevice(d || {});
+    const colSpan = tile.colSpan || 1;
+    const rowSpan = tile.rowSpan || 1;
+    const colAttr = colSpan > 1 ? ` data-col="${colSpan}"` : '';
+    const rowAttr = rowSpan > 1 ? ` data-row="${rowSpan}"` : '';
+
+    // Image tiles get the same full-bleed structure as the main dashboard camera tiles
+    if (kind === 'image') {
+      const imgUrl = d ? getImageUrl(d) : (tile.url || '');
+      const portrait = tile.imageOrientation === 'portrait' ? ' portrait' : '';
+
+      // Rate-limit cache-busting so rebuilding the grid doesn't force a reload every poll.
+      // Reuse the same _t timestamp (→ browser cache hit) until the device's own refreshRate
+      // interval has elapsed. Default to 60 s when no rate is declared.
+      let refreshMs = 60000;
+      if (d) {
+        const rateMin = getAttr(d, 'refreshRate');
+        if (rateMin != null) {
+          const parsed = parseFloat(rateMin);
+          if (!isNaN(parsed) && parsed > 0) refreshMs = parsed * 1000; // seconds → ms
+        } else {
+          const rateSec = getAttr(d, 'refreshInterval') ?? getAttr(d, 'pollInterval');
+          if (rateSec != null) {
+            const parsed = parseFloat(rateSec);
+            if (!isNaN(parsed) && parsed > 0) refreshMs = parsed * 1000;
+          }
+        }
+      }
+      const cacheKey = `custom/${name}/${tile.slotId}`;
+      const now = Date.now();
+      const last = imageLastRefreshed[cacheKey] || 0;
+      if ((now - last) >= refreshMs) imageLastRefreshed[cacheKey] = now;
+      const ts = imageLastRefreshed[cacheKey];
+      const busted = imgUrl ? imgUrl + (imgUrl.includes('?') ? '&' : '?') + '_t=' + ts : '';
+      return `<div class="image-tile${portrait}" data-custom-slot="${tile.slotId}" data-custom-name="${name}"${colAttr}${rowAttr}>
+        <button class="tile-remove" data-custom-slot="${tile.slotId}" data-custom-name="${name}" title="Remove">×</button>
+        ${busted ? `<img src="${escapeHtml(busted)}" alt="">` : '<span style="color:#555;font-size:11px;padding:8px">No image URL</span>'}
+        <span class="image-label">${escapeHtml(tile.label || (d && (d.label || d.name)) || tile.deviceId)}</span>
+        <span class="image-edit" data-custom-edit="${tile.slotId}">⋮</span>
+        <span class="tile-drag-handle" title="Drag to reorder">⠿</span>
+        <div class="resize-handle" data-custom-resize="${tile.slotId}"></div>
+      </div>`;
+    }
+
+    // Text tiles use a specific attribute — dynValueForDevice doesn't know about it
+    let valTxt;
+    let needsEscape = true;
+    if (kind === 'text' && tile.attribute && d) {
+      const attrEntry = Array.isArray(d.attributes)
+        ? d.attributes.find(a => a.name === tile.attribute) : null;
+      const v = attrEntry ? attrEntry.currentValue
+               : (d.attributes ? d.attributes[tile.attribute] : undefined);
+      const rawUnit = (attrEntry && attrEntry.unit) ? attrEntry.unit : '';
+      const unit = rawUnit ? (rawUnit.startsWith('°') ? rawUnit : ` ${rawUnit}`) : '';
+      valTxt = v != null ? `${String(v)}${unit}` : `(${tile.attribute}?)`;
+    } else if (kind === 'text' && !tile.attribute) {
+      valTxt = d ? '(set attribute)' : '—';
+    } else {
+      valTxt = d ? dynValueForDevice(d, kind) : '—';
+      needsEscape = false; // dynValueForDevice returns HTML with SVG
+    }
+
+    const active = d ? dynIsActive(d, kind) : false;
+    const stateClass = kind === 'garage' ? (active ? 'alert' : 'active') : (active ? 'active' : '');
+    const cls = 'tile' + (stateClass ? ' ' + stateClass : '');
+    const battery = d ? getAttr(d,'battery') : null;
+    return `<div class="${cls}" data-custom-slot="${tile.slotId}" data-custom-name="${name}"${colAttr}${rowAttr}>
+      <button class="tile-remove" data-custom-slot="${tile.slotId}" data-custom-name="${name}" title="Remove">×</button>
+      <span class="tile-edit" data-custom-edit="${tile.slotId}">⋮</span>
+      ${battery != null ? `<span class="tile-battery">${battery}%</span>` : ''}
+      <span class="tile-label">${escapeHtml(tile.label || (d && (d.label || d.name)) || tile.deviceId)}</span>
+      <span class="tile-value">${needsEscape ? escapeHtml(valTxt) : valTxt}</span>
+      <span class="tile-drag-handle" title="Drag to reorder">⠿</span>
+      <div class="resize-handle" data-custom-resize="${tile.slotId}"></div>
+    </div>`;
+  }).join('');
+
+  // Bind events
+  grid.querySelectorAll('[data-custom-slot]').forEach(el => {
+    if (el.classList.contains('tile-remove')) {
+      el.addEventListener('click', e => {
+        e.stopPropagation();
+        removeCustomTile(name, e.currentTarget.dataset.customSlot);
+      });
+    } else {
+      el.addEventListener('click', e => onCustomTileClick(e, name, el.dataset.customSlot));
+    }
+  });
+
+  // Drag-to-reorder and resize handles in edit mode
+  bindCustomDragEvents(grid, name);
+  grid.querySelectorAll('.tile[data-custom-slot], .image-tile[data-custom-slot]').forEach(el => {
+    bindCustomResizeHandle(el, name, el.dataset.customSlot);
+  });
+}
+
+function removeCustomTile(dashName, slotId) {
+  const dash = customDashboards[dashName];
+  if (!dash) return;
+  dash.tiles = dash.tiles.filter(t => t.slotId !== slotId);
+  saveCustomDashboards();
+  renderCustomDashboard(dashName);
+}
+
+async function onCustomTileClick(e, dashName, slotId) {
+  // ⋮ edit button always opens editor
+  if (e && e.target.closest('[data-custom-edit]')) {
+    e.preventDefault(); e.stopPropagation();
+    openCustomTileEditor(dashName, slotId);
+    return;
+  }
+  // In edit mode, click anywhere on the tile opens editor
+  if (editMode) {
+    openCustomTileEditor(dashName, slotId);
+    return;
+  }
+  const dash = customDashboards[dashName];
+  if (!dash) return;
+  const tile = dash.tiles.find(t => t.slotId === slotId);
+  if (!tile) return;
+  const d    = findDevice(tile.deviceId);
+  const kind = tile.kind || dynKindForDevice(d || {});
+  try {
+    if (kind === 'image') {
+      const imgUrl = d ? getImageUrl(d) : (tile.url || '');
+      if (imgUrl) openLightbox(imgUrl, tile.label || (d && (d.label || d.name)) || '');
+      return;
+    } else if (kind === 'bulb') {
+      showBulbLevelPicker(tile.deviceId, tile.label || (d && (d.label || d.name)) || tile.deviceId);
+      return;
+    } else if (kind === 'switch') {
+      const on = getAttr(d,'switch') === 'on';
+      if (tile.requireConfirm) {
+        const ok = await showConfirm(`Turn ${tile.label || 'switch'} ${on ? 'off' : 'on'}?`);
+        if (!ok) return;
+      }
+      await sendCommand(tile.deviceId, on ? 'off' : 'on');
+    } else if (kind === 'lock') {
+      const lk = getAttr(d,'lock');
+      const lockAction = lk === 'locked' ? 'unlock' : 'lock';
+      if (tile.requireConfirm !== false) {
+        const ok = await showConfirm(`${lockAction === 'unlock' ? 'Unlock' : 'Lock'} ${tile.label || 'door'}?`);
+        if (!ok) return;
+      }
+      await sendCommand(tile.deviceId, lockAction);
+    } else if (kind === 'garage') {
+      const door = getAttr(d,'door') || getAttr(d,'contact');
+      const isOpen = door === 'open' || door === 'opening';
+      if (tile.requireConfirm !== false) {
+        const ok = await showConfirm(`${isOpen ? 'Close' : 'Open'} ${tile.label || 'garage'}?`);
+        if (!ok) return;
+      }
+      await sendCommand(tile.deviceId, isOpen ? 'close' : 'open');
+    } else if (kind === 'shade') {
+      const shadePos = getAttr(d, 'windowShade');
+      showShadePositionPicker(tile.deviceId, tile.label || (d && (d.label || d.name)) || tile.deviceId, shadePos);
+      return;
+    } else if (kind === 'valve') {
+      const v = getAttr(d, 'valve');
+      const isOpen = v === 'open';
+      // For custom dashboards, always show timer picker for valves
+      showValveTimerPicker(tile.deviceId, tile.label || (d && (d.label || d.name)) || tile.deviceId, isOpen);
+      return;
+    }
+    setTimeout(() => { refreshAll(); renderCustomDashboard(dashName); }, 400);
+  } catch (err) { console.error('Custom tile command failed', err); }
+}
+
+async function saveCustomDashboards() {
+  try {
+    await pushConfigToWorker({ custom: customDashboards });
+    updateNavChips();
+    refreshCustomDashList();
+  } catch (e) { console.warn('Failed to save custom dashboards', e); }
+}
+
+function bindCustomDragEvents(grid, dashName) {
+  let dragCustomSlotId = null;
+
+  grid.querySelectorAll('.tile[data-custom-slot], .image-tile[data-custom-slot]').forEach(el => {
+    el.setAttribute('draggable', 'true');
+
+    el.addEventListener('dragstart', e => {
+      if (!editMode) { e.preventDefault(); return; }
+      dragCustomSlotId = el.dataset.customSlot;
+      e.dataTransfer.effectAllowed = 'move';
+      setTimeout(() => el.classList.add('dragging'), 0);
+    });
+    el.addEventListener('dragend', () => {
+      el.classList.remove('dragging');
+      grid.querySelectorAll('.drag-over').forEach(t => t.classList.remove('drag-over'));
+      dragCustomSlotId = null;
+    });
+    el.addEventListener('dragover', e => {
+      if (!editMode || !dragCustomSlotId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      el.classList.add('drag-over');
+    });
+    el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+    el.addEventListener('drop', e => {
+      e.preventDefault();
+      el.classList.remove('drag-over');
+      const targetSlotId = el.dataset.customSlot;
+      if (!dragCustomSlotId || dragCustomSlotId === targetSlotId) return;
+
+      const dash = customDashboards[dashName];
+      if (!dash) return;
+      const fromIdx = dash.tiles.findIndex(t => t.slotId === dragCustomSlotId);
+      if (fromIdx === -1) return;
+      const [moved] = dash.tiles.splice(fromIdx, 1);
+      const toIdx = dash.tiles.findIndex(t => t.slotId === targetSlotId);
+      if (toIdx === -1) dash.tiles.push(moved);
+      else dash.tiles.splice(toIdx, 0, moved);
+
+      dragCustomSlotId = null;
+      saveCustomDashboards();
+      renderCustomDashboard(dashName);
+    });
+  });
+}
+
+function bindCustomResizeHandle(el, dashName, slotId) {
+  const handle = el.querySelector('.resize-handle');
+  if (!handle) return;
+
+  handle.addEventListener('pointerdown', e => {
+    if (!editMode) return;
+    e.stopPropagation(); e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+
+    const dash = customDashboards[dashName];
+    const gridEl = document.getElementById('custom-grid');
+    const gridCols = (dash && dash.gridCols) || 3;
+    const gap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--gap')) || 6;
+    const rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-h')) || 80;
+    const colW = gridEl ? (gridEl.offsetWidth - gap * (gridCols - 1)) / gridCols : 130;
+    const colWithGap = colW + gap;
+
+    const startX = e.clientX, startY = e.clientY;
+    const startW = el.offsetWidth, startH = el.offsetHeight;
+
+    const tile = dash && dash.tiles.find(t => t.slotId === slotId);
+    let snapCol = (tile && tile.colSpan) || 1;
+    let snapRow = (tile && tile.rowSpan) || 1;
+    const validCols = [1, 2, 3].filter(c => c <= gridCols);
+
+    function onMove(ev) {
+      const dw = ev.clientX - startX;
+      const dh = ev.clientY - startY;
+      const rawCols = (startW + dw) / colWithGap;
+      snapCol = validCols.reduce((p, c) => Math.abs(c - rawCols) < Math.abs(p - rawCols) ? c : p);
+      snapRow = Math.max(1, Math.min(4, Math.round((startH + dh + gap / 2) / (rowH + gap))));
+      el.style.gridColumn = snapCol > 1 ? `span ${snapCol}` : '';
+      el.style.gridRow    = snapRow > 1 ? `span ${snapRow}` : '';
+    }
+
+    function onUp() {
+      handle.removeEventListener('pointermove', onMove);
+      el.style.gridColumn = '';
+      el.style.gridRow = '';
+      if (tile) {
+        if (snapCol > 1) tile.colSpan = snapCol; else delete tile.colSpan;
+        if (snapRow > 1) tile.rowSpan = snapRow; else delete tile.rowSpan;
+      }
+      saveCustomDashboards();
+      renderCustomDashboard(dashName);
+    }
+
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup',     onUp, { once: true });
+    handle.addEventListener('pointercancel', onUp, { once: true });
+  });
+}
+
+function openCustomTileEditor(dashName, slotId) {
+  const dash = customDashboards[dashName];
+  if (!dash) return;
+  const tile = dash.tiles.find(t => t.slotId === slotId);
+  if (!tile) return;
+
+  editingCustom = { dashName, slotId };
+  editingSlot   = null; // prevent te-save from touching cfg.slots
+
+  document.getElementById('tile-editor-title').textContent = `Edit: ${tile.label || slotId}`;
+  document.getElementById('te-label').value               = tile.label || '';
+  document.getElementById('te-kind').value                = tile.kind  || 'switch';
+  document.getElementById('te-url').value                 = tile.url   || '';
+  document.getElementById('te-url-newtab').checked        = !!tile.urlNewTab;
+  document.getElementById('te-style').value               = tile.style || 'auto';
+  document.getElementById('te-require-confirm').checked   = !!tile.requireConfirm;
+  document.getElementById('te-valve-timer').checked       = !!tile.valveTimer;
+  document.getElementById('te-image-orient').value        = tile.imageOrientation || 'landscape';
+  document.getElementById('te-col-span').value            = String(tile.colSpan ?? 1);
+  document.getElementById('te-row-span').value            = String(tile.rowSpan || 1);
+  populateDeviceDropdown(tile.kind, tile.deviceId);
+  syncTileEditorVisibility();
+  if (tile.kind === 'text') populateAttrDropdown(tile.attribute || '');
+  tileEditor.classList.add('open');
+}
+
+// ── Custom dashboard creation ─────────────────────────────────────────────────
+
+const newDashModal = document.getElementById('new-dash-modal');
+document.getElementById('new-custom-dashboard').addEventListener('click', () => {
+  document.getElementById('new-dash-name').value  = '';
+  document.getElementById('new-dash-title').value = '';
+  document.getElementById('new-dash-status').textContent = '';
+  newDashModal.classList.add('open');
+});
+document.getElementById('new-dash-cancel').addEventListener('click', () => {
+  newDashModal.classList.remove('open');
+});
+document.getElementById('new-dash-create').addEventListener('click', () => {
+  const nameRaw = document.getElementById('new-dash-name').value.trim();
+  const title   = document.getElementById('new-dash-title').value.trim() || nameRaw;
+  const statusEl = document.getElementById('new-dash-status');
+
+  // Sanitize name for URL hash
+  const name = nameRaw.toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/^-+|-+$/g,'');
+  if (!name) { statusEl.textContent = 'Name required.'; return; }
+  if (customDashboards[name]) { statusEl.textContent = `"${name}" already exists.`; return; }
+
+  customDashboards[name] = { title, tiles: [] };
+  saveCustomDashboards();
+  newDashModal.classList.remove('open');
+  navigate(`custom/${name}`);
+});
+
+function refreshCustomDashList() {
+  const list = document.getElementById('custom-dash-list');
+  if (!list) return;
+  const colOptions = [2,3,4,5,6].map(n =>
+    `<option value="${n}">${n} cols</option>`
+  ).join('');
+
+  list.innerHTML = Object.entries(customDashboards).map(([name, dash]) => {
+    const selected = dash.gridCols || '';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:4px;flex-wrap:wrap">
+      <span style="flex:1;min-width:80px;font-size:13px">${escapeHtml(dash.title || name)}</span>
+      <span style="font-size:11px;color:var(--tile-label)">#custom/${escapeHtml(name)}</span>
+      <select class="dash-cols-sel" data-dash-cols="${name}"
+        style="background:#111;border:1px solid #333;color:var(--tile-text);padding:3px 6px;border-radius:3px;font-size:12px">
+        <option value="">Auto cols</option>${colOptions}
+      </select>
+      <button class="btn sm secondary" data-dash-name="${name}">Open</button>
+      <button class="btn sm danger" data-dash-delete="${name}">Delete</button>
+    </div>`;
+  }).join('') || '<div style="color:#555;font-size:12px;padding:4px 0">No custom dashboards yet.</div>';
+
+  // Set current gridCols selection
+  list.querySelectorAll('.dash-cols-sel').forEach(sel => {
+    const name = sel.dataset.dashCols;
+    sel.value = String(customDashboards[name]?.gridCols || '');
+    sel.addEventListener('change', () => {
+      const n = sel.dataset.dashCols;
+      const val = parseInt(sel.value, 10);
+      if (val >= 2) customDashboards[n].gridCols = val;
+      else delete customDashboards[n].gridCols;
+      saveCustomDashboards();
+      if (currentView === `custom/${n}`) renderCustomDashboard(n);
+    });
+  });
+
+  list.querySelectorAll('[data-dash-name]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      closeSettings();
+      navigate(`custom/${btn.dataset.dashName}`);
+    });
+  });
+  list.querySelectorAll('[data-dash-delete]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const n = btn.dataset.dashDelete;
+      if (!confirm(`Delete dashboard "${n}"? This cannot be undone.`)) return;
+      delete customDashboards[n];
+      saveCustomDashboards();
+    });
+  });
+}
+
+// ── Device picker modal ───────────────────────────────────────────────────────
+
+const devicePickerModal = document.getElementById('device-picker-modal');
+
+function openDevicePicker(title, callback) {
+  devicePickerCallback = callback;
+  selectedDeviceIds.clear();
+  document.getElementById('device-picker-title').textContent = title || 'Add Device';
+  document.getElementById('device-search').value = '';
+  updatePickerAddBtn();
+  renderDeviceList('');
+  devicePickerModal.classList.add('open');
+}
+
+function updatePickerAddBtn() {
+  const btn = document.getElementById('device-picker-add');
+  const cnt = document.getElementById('device-picker-count');
+  if (selectedDeviceIds.size > 0) {
+    btn.style.display = '';
+    if (cnt) cnt.textContent = selectedDeviceIds.size;
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+function renderDeviceList(filter) {
+  const list = document.getElementById('device-list');
+  const q = filter.toLowerCase();
+  const filtered = devices
+    .filter(d => !q || (d.label || d.name || '').toLowerCase().includes(q))
+    .sort((a,b) => (a.label||a.name||'').localeCompare(b.label||b.name||''));
+
+  if (!filtered.length) {
+    list.innerHTML = '<div style="color:#555;font-size:13px;padding:8px">No matching devices.</div>';
+    return;
+  }
+  list.innerHTML = filtered.map(d =>
+    `<div class="device-row" data-dev-id="${d.id}" style="gap:8px">
+      <input type="checkbox" class="dev-check" data-dev-id="${d.id}"
+        ${selectedDeviceIds.has(String(d.id)) ? 'checked' : ''}
+        style="flex-shrink:0;width:16px;height:16px;accent-color:var(--info)" />
+      <span class="dev-name">${escapeHtml(d.label || d.name)}</span>
+      <span class="dev-id">${d.id}</span>
+    </div>`
+  ).join('');
+
+  // Row click toggles checkbox
+  list.querySelectorAll('.device-row').forEach(row => {
+    row.addEventListener('click', e => {
+      const cb = row.querySelector('.dev-check');
+      if (!cb || e.target === cb) return; // let native checkbox handle direct clicks
+      cb.checked = !cb.checked;
+      cb.checked ? selectedDeviceIds.add(cb.dataset.devId)
+                 : selectedDeviceIds.delete(cb.dataset.devId);
+      updatePickerAddBtn();
+    });
+  });
+  list.querySelectorAll('.dev-check').forEach(cb => {
+    cb.addEventListener('change', () => {
+      cb.checked ? selectedDeviceIds.add(cb.dataset.devId)
+                 : selectedDeviceIds.delete(cb.dataset.devId);
+      updatePickerAddBtn();
+    });
+  });
+}
+
+document.getElementById('device-search').addEventListener('input', e => {
+  renderDeviceList(e.target.value);
+});
+document.getElementById('device-picker-cancel').addEventListener('click', () => {
+  selectedDeviceIds.clear();
+  devicePickerModal.classList.remove('open');
+});
+document.getElementById('device-picker-add').addEventListener('click', () => {
+  const selected = [...selectedDeviceIds].map(id => findDevice(id)).filter(Boolean);
+  if (selected.length && devicePickerCallback) devicePickerCallback(selected);
+  selectedDeviceIds.clear();
+  devicePickerModal.classList.remove('open');
+});
+
+// Wire up "Add Device" button in custom dashboard view
+document.getElementById('custom-add-tile').addEventListener('click', () => {
+  const name = currentView.replace('custom/', '');
+  if (!customDashboards[name]) return;
+
+  openDevicePicker(`Add to "${customDashboards[name].title || name}"`, selectedDevs => {
+    const dash = customDashboards[name];
+    for (const d of selectedDevs) {
+      // Generate a unique slotId for this custom tile
+      const existingIds = new Set(dash.tiles.map(t => t.slotId));
+      let n = 1;
+      while (existingIds.has(`cd${n}`)) n++;
+      const slotId = `cd${n}`;
+      dash.tiles.push({
+        slotId,
+        deviceId: String(d.id),
+        kind: dynKindForDevice(d),
+        label: d.label || d.name || String(d.id),
+      });
+    }
+    saveCustomDashboards();
+    renderCustomDashboard(name);
+  });
+});
+
+// ── Tile editor ───────────────────────────────────────────────────────────────
+
+let editingSlot = null;
+const tileEditor = document.getElementById('tile-editor');
+
+function openTileEditor(slotId) {
+  editingCustom = null; // not editing a custom tile
+  editingSlot = slotId;
+  const s = cfg.slots[slotId] || {};
+  document.getElementById('tile-editor-title').textContent = `Edit: ${s.label || slotId}`;
+  document.getElementById('te-label').value              = s.label    || '';
+  document.getElementById('te-kind').value               = s.kind     || 'switch';
+  document.getElementById('te-url').value                = s.url      || '';
+  document.getElementById('te-url-newtab').checked       = !!s.urlNewTab;
+  document.getElementById('te-style').value              = s.style    || 'auto';
+  document.getElementById('te-require-confirm').checked  = !!s.requireConfirm;
+  document.getElementById('te-valve-timer').checked      = !!s.valveTimer;
+  document.getElementById('te-image-orient').value       = s.imageOrientation || 'landscape';
+  document.getElementById('te-col-span').value           = String(s.colSpan ?? 1);
+  document.getElementById('te-row-span').value           = String(s.rowSpan || 1);
+  populateDeviceDropdown(s.kind, s.deviceId);
+  syncTileEditorVisibility();
+  if (s.kind === 'text') populateAttrDropdown(s.attribute || '');
+  tileEditor.classList.add('open');
+}
+
+function populateDeviceDropdown(kind, currentId) {
+  const sel = document.getElementById('te-device');
+  const filters = {
+    switch:   d => hasCapability(d,'Switch')          || getAttr(d,'switch')    !== undefined,
+    bulb:     d => (hasCapability(d,'SwitchLevel')    || getAttr(d,'level')     !== undefined) &&
+                   (hasCapability(d,'Switch')         || getAttr(d,'switch')    !== undefined),
+    lock:     d => hasCapability(d,'Lock')            || getAttr(d,'lock')      !== undefined,
+    garage:   d => hasCapability(d,'GarageDoorControl')|| getAttr(d,'door')     !== undefined,
+    contact:  d => hasCapability(d,'ContactSensor')   || getAttr(d,'contact')   !== undefined,
+    presence: d => hasCapability(d,'PresenceSensor')  || getAttr(d,'presence')  !== undefined,
+    image:    isImageDevice,
+  };
+  const allSorted = [...devices].sort((a,b) => (a.label||a.name||'').localeCompare(b.label||b.name||''));
+  const filtered  = filters[kind] ? allSorted.filter(filters[kind]) : allSorted;
+  const rest      = allSorted.filter(d => !filtered.includes(d));
+
+  sel.innerHTML = '<option value="">— none —</option>' +
+    filtered.map(d => `<option value="${d.id}">${escapeHtml(d.label || d.name)} (${d.id})</option>`).join('') +
+    (rest.length ? `<optgroup label="All other devices">${
+      rest.map(d => `<option value="${d.id}">${escapeHtml(d.label || d.name)} (${d.id})</option>`).join('')
+    }</optgroup>` : '');
+  sel.value = currentId || '';
+}
+
+/**
+ * Populate the attribute autocomplete list from the currently-selected device's
+ * attributes, then set the input value.  Works even if devices aren't loaded yet
+ * (list will just be empty and the user can still type manually).
+ */
+function populateAttrDropdown(initialValue = '') {
+  const input    = document.getElementById('te-attr');
+  const datalist = document.getElementById('te-attr-list');
+  const hint     = document.getElementById('te-attr-hint');
+  if (!input || !datalist) return;
+
+  datalist.innerHTML = '';
+  const device = findDevice(document.getElementById('te-device').value);
+  if (device && device.attributes) {
+    const attrs = Array.isArray(device.attributes)
+      ? device.attributes
+      : Object.entries(device.attributes).map(([name, currentValue]) => ({ name, currentValue }));
+    attrs.sort((a, b) => a.name.localeCompare(b.name)).forEach(attr => {
+      const opt = document.createElement('option');
+      opt.value = attr.name;
+      // Show current value as the label so the user knows which attribute to pick
+      opt.label = attr.currentValue != null ? `${attr.name}  →  ${attr.currentValue}` : attr.name;
+      datalist.appendChild(opt);
+    });
+    if (hint) hint.textContent = `(${attrs.length} attributes available)`;
+  } else {
+    if (hint) hint.textContent = devices.length ? '(device not found)' : '(load devices first)';
+  }
+
+  input.value = initialValue;
+}
+
+function syncTileEditorVisibility() {
+  const kind = document.getElementById('te-kind').value;
+  const isSpacer = kind === 'spacer';
+  document.getElementById('te-device-row').style.display   = ['dashboard-link','hsm','mode','hidden','spacer'].includes(kind) ? 'none' : '';
+  document.getElementById('te-url-row').style.display      = kind === 'dashboard-link' ? '' : 'none';
+  document.getElementById('te-attr-row').style.display     = kind === 'text'           ? '' : 'none';
+  // Confirmation available for switch, lock, and garage
+  document.getElementById('te-confirm-row').style.display  = ['switch','lock','garage'].includes(kind) ? '' : 'none';
+  // Valve timer available for valve kind
+  document.getElementById('te-valve-timer-row').style.display = kind === 'valve' ? '' : 'none';
+  document.getElementById('te-orient-row').style.display   = kind === 'image'          ? '' : 'none';
+  document.getElementById('te-row-span-row').style.display = kind !== 'image'          ? '' : 'none';
+  // Spacer: hide label and style — only size matters
+  document.querySelector('.form-row:has(#te-label)').style.display  = isSpacer ? 'none' : '';
+  document.querySelector('.form-row:has(#te-style)').style.display  = isSpacer ? 'none' : '';
+}
+
+document.getElementById('te-kind').addEventListener('change', () => {
+  const kind = document.getElementById('te-kind').value;
+  // Preserve the current device selection across kind changes
+  const currentDeviceId = document.getElementById('te-device').value;
+  populateDeviceDropdown(kind, currentDeviceId);
+  syncTileEditorVisibility();
+  if (kind === 'text') populateAttrDropdown('');
+
+  // Auto-set confirm for safety-critical kinds; never auto-clear it
+  const confirmCb = document.getElementById('te-require-confirm');
+  if (kind === 'lock' || kind === 'garage') confirmCb.checked = true;
+});
+
+// When device changes while kind=text, refresh the attribute list
+document.getElementById('te-device').addEventListener('change', () => {
+  if (document.getElementById('te-kind').value === 'text') {
+    populateAttrDropdown(document.getElementById('te-attr').value);
+  }
+});
+
+document.getElementById('te-save').addEventListener('click', () => {
+  // ── Custom dashboard tile save ───────────────────────────────────────────────
+  if (editingCustom) {
+    const { dashName, slotId } = editingCustom;
+    const dash = customDashboards[dashName];
+    if (dash) {
+      const tile = dash.tiles.find(t => t.slotId === slotId);
+      if (tile) {
+        tile.label    = document.getElementById('te-label').value.trim() || tile.label || slotId;
+        tile.kind     = document.getElementById('te-kind').value;
+        const devVal  = document.getElementById('te-device').value;
+        if (devVal) tile.deviceId = devVal;
+        if (tile.kind === 'text') {
+          tile.attribute = document.getElementById('te-attr').value.trim();
+        } else {
+          delete tile.attribute;
+        }
+        tile.style      = document.getElementById('te-style').value || 'auto';
+        const rc = document.getElementById('te-require-confirm').checked;
+        if (rc) tile.requireConfirm = true; else delete tile.requireConfirm;
+        const vt = document.getElementById('te-valve-timer').checked;
+        if (vt) tile.valveTimer = true; else delete tile.valveTimer;
+        tile.url        = document.getElementById('te-url').value.trim() || undefined;
+        tile.urlNewTab  = document.getElementById('te-url-newtab').checked || undefined;
+        const io = document.getElementById('te-image-orient').value;
+        tile.imageOrientation = io === 'portrait' ? 'portrait' : undefined;
+        const cs = parseFloat(document.getElementById('te-col-span').value) || 1;
+        const rs = parseInt(document.getElementById('te-row-span').value, 10) || 1;
+        if (cs > 1) tile.colSpan = cs; else delete tile.colSpan;
+        if (rs > 1) tile.rowSpan = rs; else delete tile.rowSpan;
+      }
+    }
+    editingCustom = null;
+    tileEditor.classList.remove('open');
+    saveCustomDashboards();
+    renderCustomDashboard(dashName);
+    return;
+  }
+
+  // ── Main dashboard slot save ─────────────────────────────────────────────────
+  const s = cfg.slots[editingSlot] || {};
+  s.label            = document.getElementById('te-label').value.trim() || s.label || editingSlot;
+  s.kind             = document.getElementById('te-kind').value;
+  s.deviceId         = document.getElementById('te-device').value || '';
+  if (s.kind === 'text') {
+    s.attribute = document.getElementById('te-attr').value.trim();
+  } else {
+    delete s.attribute;
+  }
+  s.url              = document.getElementById('te-url').value.trim() || '';
+  s.urlNewTab        = document.getElementById('te-url-newtab').checked;
+  s.style            = document.getElementById('te-style').value;
+  s.requireConfirm   = document.getElementById('te-require-confirm').checked || undefined;
+  s.valveTimer       = document.getElementById('te-valve-timer').checked || undefined;
+  s.imageOrientation = document.getElementById('te-image-orient').value === 'portrait' ? 'portrait' : undefined;
+  s.colSpan          = parseFloat(document.getElementById('te-col-span').value) || 1;
+  s.rowSpan          = parseInt(document.getElementById('te-row-span').value, 10) || 1;
+  if (s.colSpan === 1) delete s.colSpan;
+  if (s.rowSpan === 1) delete s.rowSpan;
+  if (!s.requireConfirm) delete s.requireConfirm;
+  if (!s.imageOrientation) delete s.imageOrientation;
+  delete imageLastRefreshed[editingSlot]; // force immediate re-fetch with new config
+  cfg.slots[editingSlot] = s;
+  saveConfigCache();
+  markDirty();
+  buildLayout(); renderAll();
+  tileEditor.classList.remove('open');
+});
+
+document.getElementById('te-cancel').addEventListener('click', () => {
+  editingCustom = null;
+  tileEditor.classList.remove('open');
+});
+
+document.getElementById('te-duplicate').addEventListener('click', () => {
+  // ── Duplicate a custom dashboard tile ─────────────────────────────────────
+  if (editingCustom) {
+    const { dashName, slotId } = editingCustom;
+    const dash = customDashboards[dashName];
+    if (!dash) return;
+    const tile = dash.tiles.find(t => t.slotId === slotId);
+    if (!tile) return;
+
+    const existingIds = new Set(dash.tiles.map(t => t.slotId));
+    let n = 1;
+    while (existingIds.has(`cd${n}`)) n++;
+    const newSlotId = `cd${n}`;
+
+    const copy = { ...tile, slotId: newSlotId, label: (tile.label || slotId) + ' (copy)' };
+    const insertIdx = dash.tiles.findIndex(t => t.slotId === slotId);
+    dash.tiles.splice(insertIdx + 1, 0, copy);
+
+    tileEditor.classList.remove('open');
+    editingCustom = null;
+    saveCustomDashboards();
+    renderCustomDashboard(dashName);
+    return;
+  }
+
+  // ── Duplicate a main dashboard slot ──────────────────────────────────────
+  if (!editingSlot) return;
+  const newId = generateSlotId();
+  const src = cfg.slots[editingSlot] || {};
+  cfg.slots[newId] = { ...src, label: (src.label || editingSlot) + ' (copy)' };
+
+  // Insert after the current slot in the same section
+  const layout = cfg.layout || JSON.parse(JSON.stringify(LAYOUT_DEFAULTS));
+  let inserted = false;
+  for (const ids of Object.values(layout)) {
+    const idx = ids.indexOf(editingSlot);
+    if (idx !== -1) { ids.splice(idx + 1, 0, newId); inserted = true; break; }
+  }
+  if (!inserted) {
+    // Fallback: add to row1
+    if (!layout.row1) layout.row1 = [];
+    layout.row1.push(newId);
+  }
+  cfg.layout = layout;
+  saveConfigCache();
+  markDirty();
+  tileEditor.classList.remove('open');
+  editingSlot = null;
+  buildLayout();
+  renderAll();
+});
+
+document.getElementById('te-clear').addEventListener('click', () => {
+  if (editingCustom) { editingCustom = null; tileEditor.classList.remove('open'); return; }
+  if (!confirm('Reset this slot to its default?')) return;
+  cfg.slots[editingSlot] = { ...(DEFAULT_SLOTS[editingSlot] || { label: editingSlot, kind: 'hidden' }) };
+  saveConfigCache();
+  markDirty();
+  buildLayout(); renderAll();
+  tileEditor.classList.remove('open');
+});
+
+document.getElementById('te-delete').addEventListener('click', () => {
+  if (editingCustom) {
+    const { dashName, slotId } = editingCustom;
+    if (!confirm('Remove this tile from the dashboard?')) return;
+    editingCustom = null;
+    tileEditor.classList.remove('open');
+    removeCustomTile(dashName, slotId);
+    return;
+  }
+  const isUserAdded = editingSlot.startsWith('u');
+  if (!confirm(isUserAdded
+    ? 'Remove this tile from the layout?'
+    : 'Hide this tile? (It will be invisible outside edit mode. Use × in edit mode to restore.)')) return;
+
+  if (isUserAdded) {
+    // User-added tile: remove from layout and delete the slot
+    const layout = cfg.layout || JSON.parse(JSON.stringify(LAYOUT_DEFAULTS));
+    for (const ids of Object.values(layout)) {
+      const idx = ids.indexOf(editingSlot);
+      if (idx !== -1) { ids.splice(idx, 1); break; }
+    }
+    cfg.layout = layout;
+    delete cfg.slots[editingSlot];
+  } else {
+    // Fixed slot: just hide it
+    cfg.slots[editingSlot] = { ...(cfg.slots[editingSlot] || {}), kind: 'hidden' };
+  }
+  saveConfigCache();
+  markDirty();
+  buildLayout(); renderAll();
+  tileEditor.classList.remove('open');
+});
+
+// ── Polling and device refresh ────────────────────────────────────────────────
+
+async function refreshDevices() {
+  if (!cfg.hubBaseUrl || !cfg.hubAppId || !cfg.hubHasToken) {
+    return { ok: false, error: 'Hub connection not configured. Open settings.' };
+  }
+  try {
+    devices = await api('/devices/all');
+    if (!Array.isArray(devices)) devices = [];
+
+    try {
+      hubModes = await api('/modes') || [];
+      const active = hubModes.find(m => m.active);
+      if (active) window.__currentMode = active.name;
+    } catch {}
+
+    try {
+      const hsm = await api('/hsm');
+      if (hsm && hsm.hsm) window.__hsmState = hsm.hsm;
+    } catch {}
+
+    setConnDot(true);
+    return { ok: true };
+  } catch (e) {
+    setConnDot(false);
+    return { ok: false, error: e.message || String(e) };
+  }
+}
+
+async function refreshAll() {
+  await refreshDevices();
+  renderAll();
+}
+
+function setConnDot(ok) {
+  document.getElementById('conn-dot').classList.toggle('ok', !!ok);
+}
+
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(refreshAll, Math.max(2, cfg.pollSec) * 1000);
+}
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+//
+// For LAN/tunnel hub URLs, the Worker proxies the hub's eventsocket so we
+// receive real-time device events instead of polling every N seconds.
+// For cloud URLs the Worker returns 501 and we fall back to polling.
+
+function connectWebSocket() {
+  if (ws) return; // already connected
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url   = `${proto}//${location.host}/api/hub/events`;
+
+  try {
+    ws = new WebSocket(url);
+  } catch (e) {
+    console.warn('WebSocket construction failed, using polling', e);
+    startPolling();
+    return;
+  }
+
+  ws.addEventListener('open', () => {
+    console.log('Hub WebSocket connected — real-time mode');
+    setWsDot(true);
+    stopPolling(); // switch from polling to push
+  });
+
+  ws.addEventListener('message', e => {
+    try {
+      const evt = JSON.parse(e.data);
+      handleHubEvent(evt);
+    } catch {}
+  });
+
+  ws.addEventListener('close', () => {
+    console.log('Hub WebSocket closed — falling back to polling');
+    ws = null;
+    setWsDot(false);
+    startPolling();
+    // Try to reconnect after 30s
+    if (wsReconnTimer) clearTimeout(wsReconnTimer);
+    wsReconnTimer = setTimeout(() => {
+      if (!ws) connectWebSocket();
+    }, 30000);
+  });
+
+  ws.addEventListener('error', () => {
+    // close event will follow; nothing to do here
+  });
+}
+
+function setWsDot(live) {
+  document.getElementById('ws-dot').classList.toggle('live', !!live);
+}
+
+function handleHubEvent(evt) {
+  // Hubitat eventsocket event shape:
+  // { source, name, value, displayName, deviceId, unit, type }
+  if (!evt || evt.source !== 'DEVICE') return;
+
+  const deviceId = String(evt.deviceId);
+  const device   = devices.find(d => String(d.id) === deviceId);
+  if (!device) return;
+
+  // Patch the device attribute in-place
+  if (Array.isArray(device.attributes)) {
+    const attr = device.attributes.find(a => a.name === evt.name);
+    if (attr) attr.currentValue = evt.value;
+    else device.attributes.push({ name: evt.name, currentValue: evt.value });
+  }
+
+  // Re-render any main-dashboard tiles using this device
+  for (const [slotId, s] of Object.entries(cfg.slots)) {
+    if (String(s.deviceId) === deviceId) renderTile(slotId);
+  }
+
+  // Update status bar if a presence attribute changed
+  if (evt.name === 'presence') updateStatusBar();
+
+  // Update dynamic/custom views if visible
+  if (currentView.startsWith('dynamic/')) {
+    renderDynamicDashboard(currentView.replace('dynamic/', ''));
+  } else if (currentView.startsWith('custom/')) {
+    renderCustomDashboard(currentView.replace('custom/', ''));
+  }
+}
+
+// ── Settings modal ────────────────────────────────────────────────────────────
+
+const settingsModal = document.getElementById('settings-modal');
+function refreshPresencePickerList() {
+  const list = document.getElementById('presence-picker-list');
+  if (!list) return;
+  const presenceDevs = devices.filter(d =>
+    hasCapability(d, 'PresenceSensor') || getAttr(d, 'presence') !== undefined
+  ).sort((a, b) => (a.label || a.name || '').localeCompare(b.label || b.name || ''));
+  if (!presenceDevs.length) {
+    list.innerHTML = '<div style="color:#555;font-size:12px">No presence devices found. Click "Test &amp; Load Devices" above.</div>';
+    return;
+  }
+  list.innerHTML = presenceDevs.map(d => {
+    const id = String(d.id);
+    const deviceLabel = d.label || d.name || id;
+    const savedLabel  = statusBarPresenceDevices[id]?.label || '';
+    const checked = statusBarPresenceDevices[id] ? 'checked' : '';
+    return `<div style="display:flex;align-items:center;gap:8px">
+      <input type="checkbox" class="presence-bar-cb" data-device-id="${escapeHtml(id)}" ${checked}>
+      <input type="text" class="presence-bar-label" data-device-id="${escapeHtml(id)}"
+        value="${escapeHtml(savedLabel)}"
+        placeholder="${escapeHtml(deviceLabel)}"
+        style="flex:1;background:#111;border:1px solid #2a2a2a;color:var(--tile-text);padding:3px 6px;border-radius:3px;font-size:12px">
+    </div>`;
+  }).join('');
+}
+
+function openSettings() {
+  document.getElementById('cfg-url').value   = cfg.hubBaseUrl || '';
+  document.getElementById('cfg-app').value   = cfg.hubAppId  || '';
+  document.getElementById('cfg-token').value = '';
+  document.getElementById('cfg-token').placeholder = cfg.hubHasToken
+    ? '••• existing token in KV; leave blank to keep'
+    : 'paste Maker API access token';
+  document.getElementById('token-status').textContent   = cfg.hubHasToken ? '✓ stored' : '⚠ not set';
+  document.getElementById('show-token-cb').checked      = false;
+  document.getElementById('cfg-is-cloud').checked       = !!cfg.hubIsCloud;
+  document.getElementById('cfg-poll').value             = cfg.pollSec;
+  document.getElementById('cfg-title').value            = cfg.title || 'Home';
+  document.getElementById('cfg-grid-cols').value        = String(cfg.gridCols || 3);
+  document.getElementById('cfg-tile-h').value           = String(cfg.tileH || 80);
+  refreshPresencePickerList();
+  refreshCustomDashList();
+  renderDashboardManager();
+  syncAutoDynamicCheckbox();
+  settingsModal.classList.add('open');
+}
+function closeSettings() { settingsModal.classList.remove('open'); }
+
+document.getElementById('open-settings').addEventListener('click', openSettings);
+document.getElementById('close-settings').addEventListener('click', async () => {
+  readSettingsForm(); saveConfigCache();
+  closeSettings();
+  renderAll(); startPolling(); refreshAll();
+});
+
+document.getElementById('save-cfg').addEventListener('click', async () => {
+  readSettingsForm(); saveConfigCache();
+  setStatus('Saving to KV…', '');
+  try {
+    const payload = {
+      hub: { baseUrl: cfg.hubBaseUrl, appId: cfg.hubAppId, isCloud: cfg.hubIsCloud },
+      dashboard: {
+        title: cfg.title, pollSec: cfg.pollSec,
+        slots: cfg.slots, layout: cfg.layout,
+        gridCols: cfg.gridCols, tileH: cfg.tileH,
+      },
+    };
+    if (cfg.hubToken) payload.hub.token = cfg.hubToken;
+    if (Object.keys(dynamicHidden).length || Object.keys(dynamicOrder).length || Object.keys(dynamicOverrides).length) {
+      payload.dynamic = { hidden: dynamicHidden, order: dynamicOrder,
+        overrides: Object.keys(dynamicOverrides).length ? dynamicOverrides : undefined };
+    }
+    if (Object.keys(customDashboards).length) {
+      payload.custom = customDashboards;
+    }
+    if (Object.keys(dashboardsVisible).length) {
+      payload.dashboardsVisible = dashboardsVisible;
+    }
+    if (dashboardsOrder.length) {
+      payload.dashboardsOrder = dashboardsOrder;
+    }
+    // Collect presence bar selections from the settings checkbox list
+    const newPresence = {};
+    document.querySelectorAll('.presence-bar-cb').forEach(cb => {
+      if (cb.checked) {
+        const id = cb.dataset.deviceId;
+        const labelInput = document.querySelector(`.presence-bar-label[data-device-id="${id}"]`);
+        const label = (labelInput && labelInput.value.trim()) || labelInput?.placeholder || id;
+        newPresence[id] = { label, kind: 'presence' };
+      }
+    });
+    // Preserve entries for devices not currently listed (devices not loaded this session)
+    Object.entries(statusBarPresenceDevices).forEach(([id, info]) => {
+      if (!document.querySelector(`.presence-bar-cb[data-device-id="${id}"]`)) {
+        newPresence[id] = info;
+      }
+    });
+    statusBarPresenceDevices = newPresence;
+    if (Object.keys(statusBarPresenceDevices).length) {
+      payload.statusBarPresenceDevices = statusBarPresenceDevices;
+    }
+    await pushConfigToWorker(payload);
+    markClean();
+    setStatus('✓ Saved to Cloudflare KV.', 'ok');
+    const serverCfg = await fetchConfigFromWorker(false).catch(() => null);
+    if (serverCfg) applyServerConfig(serverCfg);
+  } catch (e) {
+    setStatus(`✗ Save failed: ${e.message}`, 'err');
+  }
+});
+
+document.getElementById('reset-cfg').addEventListener('click', async () => {
+  if (!confirm('Reset ALL dashboard config in KV? Wipes hub credentials, labels, mappings — everything.')) return;
+  try {
+    const r = await fetch(API_CONFIG, { method: 'DELETE', credentials: 'same-origin' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    localStorage.removeItem(STORAGE_KEY);
+    cfg = JSON.parse(JSON.stringify(defaultConfig));
+    dynamicHidden = {}; customDashboards = {};
+    devices = [];
+    buildLayout(); renderAll(); openSettings();
+    setStatus('Config wiped from KV and cache.', 'ok');
+  } catch (e) {
+    setStatus(`✗ Reset failed: ${e.message}`, 'err');
+  }
+});
+
+document.getElementById('test-conn').addEventListener('click', async () => {
+  readSettingsForm();
+  setStatus('Saving and testing…', '');
+  try {
+    const payload = { hub: { baseUrl: cfg.hubBaseUrl, appId: cfg.hubAppId, isCloud: cfg.hubIsCloud } };
+    if (cfg.hubToken) payload.hub.token = cfg.hubToken;
+    await pushConfigToWorker(payload);
+  } catch (e) { setStatus(`✗ Could not save hub creds: ${e.message}`, 'err'); return; }
+  const r = await refreshDevices();
+  if (r.ok) {
+    const imgCount = devices.filter(isImageDevice).length;
+    setStatus(`✓ Connected. ${devices.length} devices (${imgCount} image device${imgCount===1?'':'s'}).`, 'ok');
+    renderAll();
+    refreshPresencePickerList();
+    // Try WebSocket now that creds are confirmed
+    if (ws) { ws.close(); ws = null; }
+    connectWebSocket();
+  } else {
+    setStatus(`✗ ${r.error}`, 'err');
+  }
+});
+
+document.getElementById('show-token-cb').addEventListener('change', async e => {
+  const tf = document.getElementById('cfg-token');
+  if (e.target.checked) {
+    try {
+      const full = await fetchConfigFromWorker(true);
+      tf.type  = 'text';
+      tf.value = (full.hub && full.hub.token) || '';
+    } catch (err) {
+      setStatus(`Could not fetch token: ${err.message}`, 'err');
+      e.target.checked = false;
+    }
+  } else {
+    tf.type  = 'password';
+    tf.value = '';
+  }
+});
+
+function readSettingsForm() {
+  let rawUrl = document.getElementById('cfg-url').value.trim().replace(/\/$/, '');
+  // Auto-add https:// if the user forgot the protocol — prevents the Worker's new URL() from throwing
+  if (rawUrl && !rawUrl.startsWith('http://') && !rawUrl.startsWith('https://')) {
+    rawUrl = 'https://' + rawUrl;
+    document.getElementById('cfg-url').value = rawUrl;
+  }
+  cfg.hubBaseUrl = rawUrl;
+  cfg.hubAppId   = document.getElementById('cfg-app').value.trim();
+  const tok      = document.getElementById('cfg-token').value.trim();
+  if (tok) cfg.hubToken = tok;
+  cfg.hubIsCloud = document.getElementById('cfg-is-cloud').checked;
+  cfg.pollSec    = parseInt(document.getElementById('cfg-poll').value, 10) || 5;
+  cfg.title      = document.getElementById('cfg-title').value.trim() || 'Home';
+  cfg.gridCols   = parseInt(document.getElementById('cfg-grid-cols').value, 10) || 3;
+  cfg.tileH      = parseInt(document.getElementById('cfg-tile-h').value, 10) || 80;
+  applyCssVars();
+}
+function setStatus(msg, kind) {
+  const el = document.getElementById('conn-status');
+  el.className = 'status-msg ' + (kind || '');
+  el.textContent = msg;
+}
+
+// ── Dashboard Manager (in settings) ────────────────────────────────────────────
+
+// Sync the "auto-generated dashboards" checkbox to current dashboardsVisible state.
+// Checked = all dynamic groups visible; indeterminate = some; unchecked = none.
+function syncAutoDynamicCheckbox() {
+  const cb = document.getElementById('cfg-auto-dynamic');
+  if (!cb) return;
+  const allOn = DYNAMIC_GROUPS.every(g => dashboardsVisible[g.key] !== false);
+  const anyOn = DYNAMIC_GROUPS.some(g => dashboardsVisible[g.key] !== false);
+  cb.checked = allOn;
+  cb.indeterminate = !allOn && anyOn;
+}
+
+document.getElementById('cfg-auto-dynamic').addEventListener('change', e => {
+  DYNAMIC_GROUPS.forEach(g => { dashboardsVisible[g.key] = e.target.checked; });
+  saveConfigCache();
+  updateNavChips();
+  renderDashboardManager();
+});
+
+function renderDashboardManager() {
+  const managerList = document.getElementById('dashboard-manager-list');
+  if (!managerList) return;
+
+  // Build list of all dashboards
+  const allDashboards = [
+    { key: 'main', label: 'Main', kind: 'main' },
+    ...DYNAMIC_GROUPS.map(g => ({ key: g.key, label: g.label, kind: 'dynamic' })),
+    ...Object.entries(customDashboards).map(([name, dash]) =>
+      ({ key: 'custom/' + name, label: dash.title || name, kind: 'custom' }))
+  ];
+
+  // Initialize if empty. Dynamic dashboards are opt-in; main/custom start visible.
+  if (!dashboardsOrder.length) {
+    dashboardsOrder = allDashboards.map(d => d.key);
+    dashboardsVisible = {};
+    allDashboards.forEach(d => { dashboardsVisible[d.key] = d.kind !== 'dynamic'; });
+  }
+
+  // Render draggable items for each dashboard
+  let draggedIndex = null;
+  managerList.innerHTML = dashboardsOrder
+    .filter(key => allDashboards.some(d => d.key === key)) // Only render if still exists
+    .map((key, index) => {
+      const dashboard = allDashboards.find(d => d.key === key);
+      const isVisible = dashboardsVisible[key] !== false;
+      const cls = `dashboard-item${isVisible ? '' : ' hidden-dashboard'}`;
+      return `<div class="${cls}" draggable="true" data-dashboard-key="${key}" data-dashboard-index="${index}">
+        <span class="drag-handle" title="Drag to reorder">⠿</span>
+        <input type="checkbox" ${isVisible ? 'checked' : ''} data-toggle-key="${key}" class="dashboard-toggle" />
+        <label data-label-key="${key}">${escapeHtml(dashboard.label)}</label>
+      </div>`;
+    }).join('');
+
+  // Bind toggle events
+  managerList.querySelectorAll('.dashboard-toggle').forEach(toggle => {
+    toggle.addEventListener('change', e => {
+      const key = e.target.dataset.toggleKey;
+      dashboardsVisible[key] = e.target.checked;
+      saveConfigCache();
+      // Update UI: add/remove hidden-dashboard class
+      e.target.closest('.dashboard-item').classList.toggle('hidden-dashboard', !e.target.checked);
+      updateNavChips();
+      syncAutoDynamicCheckbox();
+    });
+  });
+
+  // Bind drag events
+  managerList.querySelectorAll('.dashboard-item').forEach((el, index) => {
+    el.addEventListener('dragstart', e => {
+      draggedIndex = index;
+      el.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    el.addEventListener('dragend', () => {
+      el.classList.remove('dragging');
+      managerList.querySelectorAll('.drag-over').forEach(t => t.classList.remove('drag-over'));
+      draggedIndex = null;
+    });
+    el.addEventListener('dragover', e => {
+      if (draggedIndex === null) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      el.classList.add('drag-over');
+    });
+    el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+    el.addEventListener('drop', e => {
+      e.preventDefault();
+      el.classList.remove('drag-over');
+      const targetIndex = parseInt(el.dataset.dashboardIndex, 10);
+      if (draggedIndex === null || draggedIndex === targetIndex) return;
+
+      // Reorder the dashboards
+      const [movedKey] = dashboardsOrder.splice(draggedIndex, 1);
+      dashboardsOrder.splice(targetIndex, 0, movedKey);
+      saveConfigCache();
+      renderDashboardManager(); // Re-render with new order
+      updateNavChips();
+    });
+  });
+}
+
+// Reset dashboards to default order and visibility
+document.addEventListener('click', e => {
+  if (e.target.id === 'reset-dashboards') {
+    dashboardsOrder = [];
+    dashboardsVisible = {};
+    saveConfigCache();
+    renderDashboardManager();
+    updateNavChips();
+  }
+});
+
+// ── Export / Import ───────────────────────────────────────────────────────────
+
+function setIoStatus(msg, kind) {
+  const el = document.getElementById('io-status');
+  el.className = 'status-msg ' + (kind || '');
+  el.textContent = msg;
+  if (msg) setTimeout(() => { el.textContent = ''; el.className = ''; }, 4000);
+}
+
+document.getElementById('export-cfg').addEventListener('click', async () => {
+  const inc = confirm('Include hub access token in download?\n\nOK = include (sensitive)\nCancel = exclude');
+  let out;
+  try {
+    out = await fetchConfigFromWorker(inc);
+    if (!inc && out.hub) delete out.hub.token;
+  } catch (e) {
+    setIoStatus(`Could not fetch from KV: ${e.message}`, 'err'); return;
+  }
+  const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  const ts   = new Date().toISOString().replace(/[:.]/g,'-').substring(0,19);
+  a.href = url; a.download = `hubitat-dashboard-${ts}${inc?'-with-token':''}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  setIoStatus(`Downloaded${inc ? ' (includes token — keep secure)' : ''}.`, 'ok');
+});
+
+document.getElementById('import-cfg-btn').addEventListener('click', () => {
+  document.getElementById('import-cfg-file').click();
+});
+document.getElementById('import-cfg-file').addEventListener('change', e => {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      applyImportedConfig(JSON.parse(ev.target.result), 'file');
+    } catch (err) { setIoStatus('Import failed: ' + err.message, 'err'); }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+document.getElementById('copy-cfg').addEventListener('click', async () => {
+  try {
+    const out = await fetchConfigFromWorker(false);
+    await navigator.clipboard.writeText(JSON.stringify(out, null, 2));
+    setIoStatus('Copied to clipboard.', 'ok');
+  } catch (e) {
+    document.getElementById('cfg-json').value = JSON.stringify(cfg, null, 2);
+    setIoStatus('Clipboard blocked — showing in textarea.', 'err');
+  }
+});
+document.getElementById('apply-json').addEventListener('click', () => {
+  try {
+    const txt = document.getElementById('cfg-json').value.trim();
+    if (!txt) { setIoStatus('Textarea is empty.', 'err'); return; }
+    applyImportedConfig(JSON.parse(txt), 'textarea');
+  } catch (e) { setIoStatus('Parse failed: ' + e.message, 'err'); }
+});
+document.getElementById('show-json').addEventListener('click', async () => {
+  try {
+    const server = await fetchConfigFromWorker(false);
+    document.getElementById('cfg-json').value = JSON.stringify(server, null, 2);
+  } catch (e) { setIoStatus(`Could not fetch from KV: ${e.message}`, 'err'); }
+});
+
+function applyImportedConfig(parsed, source) {
+  if (!parsed || typeof parsed !== 'object') throw new Error('Not a valid config object');
+  let hub, dashboard;
+  if (parsed.hub || parsed.dashboard) {
+    hub = parsed.hub || {}; dashboard = parsed.dashboard || {};
+  } else {
+    hub = { baseUrl: parsed.url || parsed.hubBaseUrl || '', appId: parsed.appId || parsed.hubAppId || '', token: parsed.token || parsed.hubToken || '' };
+    dashboard = { title: parsed.title, pollSec: parsed.pollSec, slots: parsed.slots };
+  }
+  cfg.hubBaseUrl = hub.baseUrl || ''; cfg.hubAppId = hub.appId || '';
+  cfg.hubIsCloud = !!hub.isCloud;
+  if (hub.token) { cfg.hubToken = hub.token; cfg.hubHasToken = true; }
+  cfg.title   = dashboard.title   || cfg.title;
+  cfg.pollSec = dashboard.pollSec || cfg.pollSec;
+  if (dashboard.slots) cfg.slots = { ...DEFAULT_SLOTS, ...dashboard.slots };
+  if (dashboard.layout) cfg.layout = dashboard.layout;
+  if (typeof dashboard.gridCols === 'number') cfg.gridCols = dashboard.gridCols;
+  if (typeof dashboard.tileH    === 'number') cfg.tileH    = dashboard.tileH;
+  if (parsed.dynamic) dynamicHidden = parsed.dynamic.hidden || {};
+  if (parsed.custom)  customDashboards = parsed.custom;
+  saveConfigCache();
+  applyCssVars();
+  markDirty();
+  buildLayout(); renderAll(); updateNavChips(); refreshCustomDashList();
+  setIoStatus(`Imported from ${source}. Click "Save to KV" to persist.`, 'ok');
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+
+async function boot() {
+  readHash();
+  applyCssVars();
+  buildLayout();
+  renderAll();
+  renderView();   // apply section visibility from hash before config loads
+  updateNavChips();
+
+  // Load config from KV (source of truth)
+  try {
+    const serverCfg = await fetchConfigFromWorker(false);
+    applyServerConfig(serverCfg);
+    buildLayout();
+    renderAll();
+    renderView();  // re-apply after config (custom dashboards now loaded)
+    updateNavChips();
+    refreshCustomDashList();
+    markClean(); // fresh from KV — no unsaved changes
+  } catch (e) {
+    console.warn('Could not load config from Worker, using cache:', e.message);
+  }
+
+  if (!cfg.hubBaseUrl || !cfg.hubAppId || !cfg.hubHasToken) {
+    openSettings();
+  } else {
+    await refreshDevices();
+    renderAll();
+    updateStatusBar();
+    // Try WebSocket first; fall back to polling on close/error
+    connectWebSocket();
+    // Also start polling as a safety net (WebSocket close disables polling when ws is live)
+    startPolling();
+  }
+}
+
+boot();
+})();
+</script>
+</body>
+</html>

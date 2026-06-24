@@ -1,0 +1,31 @@
+name = "hubitat-dashboard"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "YOUR_CLOUDFLARE_ACCOUNT_ID"
+
+# Static asset serving
+[assets]
+directory = "./src/assets"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+# KV namespace for config storage
+# Run `wrangler kv namespace create CONFIG` to create your own and paste the IDs below
+[[kv_namespaces]]
+binding = "CONFIG"
+id = "YOUR_KV_NAMESPACE_ID"
+preview_id = "YOUR_KV_PREVIEW_NAMESPACE_ID"
+
+# Observability
+[observability]
+enabled = true
+
+# Optional: smart placement to put the worker close to your hub
+# [placement]
+# mode = "smart"
+
+# Optional: custom domain — uncomment and configure
+# [[routes]]
+# pattern = "dashboard.example.com/*"
+# zone_name = "example.com"

@@ -1,0 +1,19 @@
+{
+  "name": "hubitat-dashboard",
+  "version": "0.1.0",
+  "description": "Smartly-style dashboard for Hubitat Elevation, on Cloudflare Workers",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "typecheck": "tsc --noEmit",
+    "kv:get-hub": "wrangler kv key get hub-connection --binding=CONFIG",
+    "kv:get-dashboard": "wrangler kv key get dashboard-config --binding=CONFIG"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250101.0",
+    "typescript": "^5.5.0",
+    "wrangler": "^4.0.0"
+  }
+}
