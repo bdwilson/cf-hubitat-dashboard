@@ -10,11 +10,15 @@
  *   1. X-Hub-Token / X-Hub-Base-Url / X-Hub-App-Id request headers
  *      → "hybrid" or "full browser" mode: token lives in browser localStorage,
  *        sent per-request over HTTPS, never stored server-side.
- *   2. KV hub-connection key
- *      → "full KV" mode (legacy default): token stored server-side in KV.
+ *   2. KV {hubId}:hub-connection
+ *      → "full KV" mode (legacy): token stored server-side in KV.
+ *
+ * Hub ID validation runs on every request (single-hub enforcement / CF Access
+ * check for multi-hub) via resolveHubId() from config.ts.
  *
  * WebSocket proxy: GET /api/hub/events with Upgrade: websocket header
- *   Uses KV-based auth only (browser WebSocket API cannot set custom headers).
+ *   Hub ID is passed as ?hubId= query param (browser WebSocket API cannot set
+ *   custom headers on the upgrade request).
  *   Proxies to ws://{hub}/eventsocket (LAN/tunnel only; cloud falls back to
  *   polling — the cloud API does not expose a WebSocket event stream).
  *
@@ -22,13 +26,13 @@
  *   param so browser-mode users can also get real-time events without KV.
  */
 
-import { loadHubConnection } from './config';
+import { loadHubConnection, resolveHubId } from './config';
 import type { Env, HubConnection } from '../types';
 
 export async function handleHubProxy(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
 
-  // WebSocket upgrade: /api/hub/events — KV-based auth only for now
+  // WebSocket upgrade: hub ID passed as ?hubId= since WS can't send custom headers
   if (
     url.pathname === '/api/hub/events' &&
     req.headers.get('Upgrade')?.toLowerCase() === 'websocket'
@@ -36,8 +40,13 @@ export async function handleHubProxy(req: Request, env: Env): Promise<Response> 
     return handleWebSocketProxy(req, env);
   }
 
-  // Resolve hub connection: headers first (browser/hybrid mode), then KV (full-KV mode)
-  const hub = resolveHubConnection(req) ?? await loadHubConnection(env);
+  // Validate hub ID (single-hub enforcement and CF Access check in multi-hub mode)
+  const hubResult = await resolveHubId(req, env);
+  if (hubResult instanceof Response) return hubResult;
+  const { hubId } = hubResult;
+
+  // Credentials: browser headers first (browser/hybrid mode), then KV fallback
+  const hub = resolveHubConnection(req) ?? await loadHubConnection(env, hubId);
 
   if (!hub.baseUrl || !hub.appId || !hub.token) {
     return jsonError(
@@ -86,7 +95,7 @@ export async function handleHubProxy(req: Request, env: Env): Promise<Response> 
 
 /**
  * Read hub credentials from request headers (browser/hybrid mode).
- * Returns null if the required headers are absent, so the caller can fall back to KV.
+ * Returns null if required headers are absent so the caller falls back to KV.
  */
 function resolveHubConnection(req: Request): HubConnection | null {
   const token   = req.headers.get('X-Hub-Token');
@@ -107,13 +116,20 @@ function resolveHubConnection(req: Request): HubConnection | null {
  * a WebSocket event stream. Returns 501 for cloud URLs so the browser falls
  * back to polling.
  *
- * Uses KV-based auth only — the browser WebSocket API cannot set custom
- * request headers on the upgrade request.
+ * Hub ID is read from ?hubId= query param because the browser WebSocket API
+ * cannot set custom request headers on the upgrade request.
  *
  * Hub eventsocket: ws://{hub}/eventsocket — no authentication required on LAN.
  */
-async function handleWebSocketProxy(_req: Request, env: Env): Promise<Response> {
-  const hub = await loadHubConnection(env);
+async function handleWebSocketProxy(req: Request, env: Env): Promise<Response> {
+  const url = new URL(req.url);
+  const hubIdParam = url.searchParams.get('hubId') ?? undefined;
+
+  const hubResult = await resolveHubId(req, env, hubIdParam);
+  if (hubResult instanceof Response) return hubResult;
+  const { hubId } = hubResult;
+
+  const hub = await loadHubConnection(env, hubId);
 
   if (!hub.baseUrl) {
     return new Response(

@@ -19,6 +19,20 @@ jobs:
             -e 's/YOUR_KV_NAMESPACE_ID/${{ secrets.KV_NAMESPACE_ID }}/g' \
             -e 's/YOUR_KV_PREVIEW_NAMESPACE_ID/${{ secrets.KV_PREVIEW_NAMESPACE_ID }}/g' \
             wrangler.toml.example > wrangler.toml
+          # If KV_NAMESPACE_ID is unset or set to the placeholder value "none",
+          # strip the [[kv_namespaces]] block so Cloudflare doesn't reject it.
+          # The dashboard will fall back to browser-only (localStorage) mode.
+          if [ "${{ secrets.KV_NAMESPACE_ID }}" = "none" ] || [ -z "${{ secrets.KV_NAMESPACE_ID }}" ]; then
+            python3 -c "
+lines = open('wrangler.toml').readlines()
+out, skip = [], False
+for line in lines:
+    if '# KV namespace for config storage' in line: skip = True
+    if skip and line.startswith('[') and not line.startswith('[['): skip = False
+    if not skip: out.append(line)
+open('wrangler.toml', 'w').writelines(out)
+"
+          fi
 
       - name: Deploy
         uses: cloudflare/wrangler-action@v3

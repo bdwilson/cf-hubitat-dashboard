@@ -566,12 +566,16 @@
   <div class="modal-card">
     <h2>Dashboard Settings</h2>
     <div class="help">
-      Hub credentials (token) are saved to <strong>this browser only</strong> — never sent to Cloudflare KV. Dashboard config (tiles, layout, visibility) can be saved to KV for cross-device sync via <strong>Save Config to KV</strong> below.
+      Hub credentials (token) are saved to <strong>this browser only</strong> — never sent to Cloudflare KV. Dashboard config (tiles, layout, visibility) can be saved to KV for cross-device sync via <strong>Save Config to KV</strong> below. Your hub's UID namespaces your config in KV so multiple hubs can share one Worker.
     </div>
     <h3>Hub Connection</h3>
     <div class="form-row">
       <label>Hub Base URL — Cloud (<code>https://cloud.hubitat.com/api/HUB-UID</code>) or Tunnel hostname</label>
       <input id="cfg-url" placeholder="https://cloud.hubitat.com/api/abc-uuid" />
+    </div>
+    <div class="form-row" id="hub-id-row" style="display:none">
+      <label>Hub ID <span style="font-size:11px;color:var(--tile-label)">(auto-detected from URL · namespaces your config in KV)</span></label>
+      <input id="hub-id-display" readonly style="background:#1a1a1a;color:#888;cursor:default;font-family:monospace;font-size:12px" />
     </div>
     <div class="form-row">
       <label>Maker API App ID</label>
@@ -617,7 +621,7 @@
       </select>
     </div>
     <div class="btn-row">
-      <button class="btn" id="test-conn">Test &amp; Load Devices</button>
+      <button class="btn" id="test-conn">Save to Browser &amp; Test</button>
       <button class="btn" id="save-cfg">☁ Save Config to KV</button>
       <button class="btn secondary" id="close-settings">Close</button>
     </div>
@@ -634,7 +638,7 @@
     <h3>Status Bar</h3>
     <div class="help">Select which presence sensors appear as chips at the top of every view.</div>
     <div id="presence-picker-list" style="max-height:200px; overflow-y:auto; border:1px solid #2a2a2a; border-radius:4px; padding:8px; display:flex; flex-direction:column; gap:4px; margin-top:8px">
-      <div style="color:#555;font-size:12px">Load devices first — click "Test &amp; Load Devices" above.</div>
+      <div style="color:#555;font-size:12px">Load devices first — click "Save to Browser &amp; Test" above.</div>
     </div>
 
     <h3>Custom Dashboards</h3>
@@ -1106,9 +1110,47 @@ function saveConfigCache() {
   catch (e) { console.warn('saveConfigCache', e); }
 }
 
+// ── Hub ID helpers ────────────────────────────────────────────────────────────
+//
+// The hub UID namespaces all KV keys so multiple hubs can share one Worker.
+// For cloud URLs it is extracted from the base URL automatically.
+// For LAN/tunnel URLs a persistent UUID is generated and stored in localStorage.
+
+function extractHubId() {
+  if (cfg.hubBaseUrl) {
+    const m = cfg.hubBaseUrl.match(/cloud\.hubitat\.com\/api\/([a-f0-9-]+)/i);
+    if (m) return m[1];
+    // LAN/tunnel URL — use a persistent browser-stored UUID
+    const INST_KEY = 'hubitat-hub-instance-id';
+    let id = localStorage.getItem(INST_KEY);
+    if (!id) { id = crypto.randomUUID(); localStorage.setItem(INST_KEY, id); }
+    return id;
+  }
+  // No base URL yet — return stored LAN ID if present so we don't re-register on reload
+  return localStorage.getItem('hubitat-hub-instance-id');
+}
+
+function workerHeaders(extra = {}) {
+  const h = { ...extra };
+  const hubId = extractHubId();
+  if (hubId) h['X-Hub-Id'] = hubId;
+  return h;
+}
+
+function hubProxyHeaders() {
+  const h = workerHeaders();
+  if (cfg.hubToken) {
+    h['X-Hub-Token']    = cfg.hubToken;
+    h['X-Hub-Base-Url'] = cfg.hubBaseUrl;
+    h['X-Hub-App-Id']   = cfg.hubAppId;
+    h['X-Hub-Is-Cloud'] = cfg.hubIsCloud ? '1' : '0';
+  }
+  return h;
+}
+
 async function fetchConfigFromWorker(includeSecrets) {
   const url = includeSecrets ? `${API_CONFIG}?include_secrets=1` : API_CONFIG;
-  const r = await fetch(url, { credentials: 'same-origin' });
+  const r = await fetch(url, { credentials: 'same-origin', headers: workerHeaders() });
   if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
   return r.json();
 }
@@ -1116,7 +1158,7 @@ async function fetchConfigFromWorker(includeSecrets) {
 async function pushConfigToWorker(payload) {
   const r = await fetch(API_CONFIG, {
     method: 'PUT',
-    headers: { 'content-type': 'application/json' },
+    headers: workerHeaders({ 'content-type': 'application/json' }),
     credentials: 'same-origin',
     body: JSON.stringify(payload),
   });
@@ -1199,15 +1241,7 @@ function hubPath(path) {
 }
 async function api(path) {
   const fullUrl = hubPath(path);
-  // Pass hub credentials as headers (browser/hybrid mode).
-  // Worker checks these first; falls back to KV if absent (full-KV mode).
-  const headers = {};
-  if (cfg.hubToken) {
-    headers['X-Hub-Token']    = cfg.hubToken;
-    headers['X-Hub-Base-Url'] = cfg.hubBaseUrl;
-    headers['X-Hub-App-Id']   = cfg.hubAppId;
-    headers['X-Hub-Is-Cloud'] = cfg.hubIsCloud ? '1' : '0';
-  }
+  const headers = hubProxyHeaders();
   let r;
   try { r = await fetch(fullUrl, { credentials: 'same-origin', headers }); }
   catch (netErr) { throw new Error(`Network error fetching ${fullUrl} — ${netErr.message}`); }
@@ -3507,7 +3541,9 @@ function stopPolling() {
 function connectWebSocket() {
   if (ws) return; // already connected
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const url   = `${proto}//${location.host}/api/hub/events`;
+  const hubId = extractHubId();
+  const query = hubId ? `?hubId=${encodeURIComponent(hubId)}` : '';
+  const url   = `${proto}//${location.host}/api/hub/events${query}`;
 
   try {
     ws = new WebSocket(url);
@@ -3613,6 +3649,15 @@ function refreshPresencePickerList() {
 
 function openSettings() {
   document.getElementById('cfg-url').value   = cfg.hubBaseUrl || '';
+  const hubId = extractHubId();
+  const hubIdRow = document.getElementById('hub-id-row');
+  const hubIdDisplay = document.getElementById('hub-id-display');
+  if (hubId && hubIdDisplay) {
+    hubIdDisplay.value = hubId;
+    if (hubIdRow) hubIdRow.style.display = '';
+  } else if (hubIdRow) {
+    hubIdRow.style.display = 'none';
+  }
   document.getElementById('cfg-app').value   = cfg.hubAppId  || '';
   document.getElementById('cfg-token').value = '';
   document.getElementById('cfg-token').placeholder = cfg.hubToken
@@ -3703,7 +3748,7 @@ document.getElementById('save-cfg').addEventListener('click', async () => {
 document.getElementById('reset-cfg').addEventListener('click', async () => {
   if (!confirm('Reset ALL dashboard config in KV? Wipes hub credentials, labels, mappings — everything.')) return;
   try {
-    const r = await fetch(API_CONFIG, { method: 'DELETE', credentials: 'same-origin' });
+    const r = await fetch(API_CONFIG, { method: 'DELETE', credentials: 'same-origin', headers: workerHeaders() });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     localStorage.removeItem(STORAGE_KEY);
     cfg = JSON.parse(JSON.stringify(defaultConfig));
