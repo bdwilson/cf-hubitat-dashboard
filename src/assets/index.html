@@ -4021,7 +4021,28 @@ document.getElementById('export-cfg').addEventListener('click', async () => {
     out = await fetchConfigFromWorker(inc);
     if (!inc && out.hub) delete out.hub.token;
   } catch (e) {
-    setIoStatus(`Could not fetch from KV: ${e.message}`, 'err'); return;
+    // KV not configured or unavailable — build export from in-memory state
+    out = {
+      hub: {
+        baseUrl: cfg.hubBaseUrl,
+        appId:   cfg.hubAppId,
+        isCloud: cfg.hubIsCloud,
+        ...(inc && cfg.hubToken ? { token: cfg.hubToken } : { hasToken: cfg.hubHasToken }),
+      },
+      dashboard: {
+        title:    cfg.title,
+        pollSec:  cfg.pollSec,
+        slots:    cfg.slots,
+        layout:   cfg.layout,
+        gridCols: cfg.gridCols,
+        tileH:    cfg.tileH,
+      },
+      dynamic:                  { hidden: dynamicHidden, order: dynamicOrder, overrides: dynamicOverrides },
+      custom:                   customDashboards,
+      dashboardsVisible,
+      dashboardsOrder,
+      statusBarPresenceDevices,
+    };
   }
   const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
   const url  = URL.createObjectURL(blob);
