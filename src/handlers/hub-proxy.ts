@@ -163,6 +163,8 @@ async function handleWebSocketProxy(req: Request, env: Env): Promise<Response> {
   const [client, server] = [pair[0], pair[1]];
   server.accept();
 
+  console.log(`[ws] connecting to ${hubWsUrl} (CF Access: ${!!(env.CF_ACCESS_CLIENT_ID && env.CF_ACCESS_CLIENT_SECRET)})`);
+
   let hubWs: WebSocket;
   try {
     if (env.CF_ACCESS_CLIENT_ID && env.CF_ACCESS_CLIENT_SECRET) {
@@ -186,7 +188,9 @@ async function handleWebSocketProxy(req: Request, env: Env): Promise<Response> {
       hubWs = new WebSocket(hubWsUrl);
     }
   } catch (err) {
-    server.close(1011, `Could not connect to hub: ${err instanceof Error ? err.message : String(err)}`);
+    const msg = `Could not connect to hub: ${err instanceof Error ? err.message : String(err)}`;
+    console.error(`[ws] ${msg}`);
+    server.close(1011, msg);
     return new Response(null, { status: 101, webSocket: client });
   }
 
