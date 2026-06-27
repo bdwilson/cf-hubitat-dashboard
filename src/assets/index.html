@@ -591,7 +591,7 @@
       <div class="help" style="margin-top:4px; font-size:11px">Saved to this browser only — never sent to Cloudflare KV.</div>
     </div>
     <div class="form-row">
-      <label><input type="checkbox" id="cfg-is-cloud" /> This is a Hubitat Cloud URL (auto-detected if blank)</label>
+      <label><input type="checkbox" id="cfg-is-cloud" /> This is a Hubitat Cloud URL (auto-detected from URL)</label>
     </div>
     <div class="form-row">
       <label>Poll interval (seconds) — used as fallback when WebSocket is unavailable</label>
@@ -3681,7 +3681,10 @@ function openSettings() {
     : cfg.hubHasToken ? '✓ in KV'
     : '⚠ not set';
   document.getElementById('show-token-cb').checked      = false;
-  document.getElementById('cfg-is-cloud').checked       = !!cfg.hubIsCloud;
+  // Auto-detect from URL when possible; manual checkbox only needed for ambiguous cases
+  document.getElementById('cfg-is-cloud').checked = cfg.hubBaseUrl
+    ? cfg.hubBaseUrl.includes('cloud.hubitat.com')
+    : !!cfg.hubIsCloud;
   document.getElementById('cfg-poll').value             = cfg.pollSec;
   document.getElementById('cfg-title').value            = cfg.title || 'Home';
   document.getElementById('cfg-grid-cols').value        = String(cfg.gridCols || 3);
@@ -3808,6 +3811,11 @@ document.getElementById('test-conn').addEventListener('click', async () => {
   } else {
     setStatus(`✗ ${r.error}`, 'err');
   }
+});
+
+document.getElementById('cfg-url').addEventListener('input', e => {
+  const url = e.target.value.trim();
+  if (url) document.getElementById('cfg-is-cloud').checked = url.includes('cloud.hubitat.com');
 });
 
 document.getElementById('show-token-cb').addEventListener('change', async e => {
@@ -4068,7 +4076,9 @@ function applyImportedConfig(parsed, source) {
   const appField = document.getElementById('cfg-app');
   if (appField) appField.value = cfg.hubAppId;
   const cloudCb = document.getElementById('cfg-is-cloud');
-  if (cloudCb) cloudCb.checked = !!cfg.hubIsCloud;
+  if (cloudCb) cloudCb.checked = cfg.hubBaseUrl
+    ? cfg.hubBaseUrl.includes('cloud.hubitat.com')
+    : !!cfg.hubIsCloud;
   // Also refresh the token status indicator in the settings form (which is open during import)
   const tf = document.getElementById('cfg-token');
   if (tf) tf.placeholder = cfg.hubToken
