@@ -26,19 +26,24 @@ jobs:
             awk '/^# KV namespace for config storage/{skip=1} skip && /^\[/ && !/^\[\[/{skip=0} !skip' wrangler.toml > tmp.toml && mv tmp.toml wrangler.toml
           fi
 
+      # Push CF Access service token secrets to Cloudflare if configured.
+      # Only needed when your Hubitat tunnel is protected by CF Access.
+      # Add CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET to your repo
+      # secrets (Settings → Secrets and variables → Actions) to enable.
+      # wrangler-action's preCommands runs each line as a separate sh -c call,
+      # so multi-line if blocks don't work there — use a regular run step instead.
+      - name: Push CF Access tunnel secrets (if configured)
+        run: |
+          if [ -n "$CF_ACCESS_CLIENT_ID" ]; then
+            echo "$CF_ACCESS_CLIENT_ID" | npx wrangler@3 secret put CF_ACCESS_CLIENT_ID
+            echo "$CF_ACCESS_CLIENT_SECRET" | npx wrangler@3 secret put CF_ACCESS_CLIENT_SECRET
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+
       - name: Deploy
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          # Push CF Access service token secrets to Cloudflare if configured.
-          # Only needed when your Hubitat tunnel is protected by CF Access.
-          # Add CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET to your repo
-          # secrets (Settings → Secrets and variables → Actions) to enable.
-          preCommands: |
-            if [ -n "$CF_ACCESS_CLIENT_ID" ]; then
-              echo "$CF_ACCESS_CLIENT_ID" | wrangler secret put CF_ACCESS_CLIENT_ID
-              echo "$CF_ACCESS_CLIENT_SECRET" | wrangler secret put CF_ACCESS_CLIENT_SECRET
-            fi
-        env:
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
