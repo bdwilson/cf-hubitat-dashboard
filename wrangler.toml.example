@@ -24,6 +24,14 @@ preview_id = "YOUR_KV_PREVIEW_NAMESPACE_ID"
 # caller can read/write any hub's config. Leave "false" for personal use.
 MULTI_HUB = "false"
 
+# CF Access service token for Worker → Hubitat tunnel authentication.
+# Only needed if your Cloudflare Tunnel is protected by CF Access.
+# Create in Zero Trust → Access → Service Auth → Service Tokens.
+# Add as secrets (NOT plaintext vars) via:
+#   wrangler secret put CF_ACCESS_CLIENT_ID
+#   wrangler secret put CF_ACCESS_CLIENT_SECRET
+# Then add the service token as an Allow policy on your tunnel's CF Access app.
+
 # Observability
 [observability]
 enabled = true
