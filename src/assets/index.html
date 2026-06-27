@@ -429,6 +429,7 @@
   .status-msg { font-size: 12px; margin-top: 8px; padding: 6px 10px; border-radius: 4px; }
   .status-msg.ok { background: rgba(45,191,100,0.15); color: var(--active); }
   .status-msg.err { background: rgba(216,58,58,0.15); color: var(--alert); }
+  .status-msg.warn { background: rgba(220,160,0,0.15); color: #e6a800; }
 
   /* Confirm modal — compact centered */
   #confirm-modal .modal-card { max-width: 360px; text-align: center; }
@@ -3489,8 +3490,11 @@ document.getElementById('te-delete').addEventListener('click', () => {
 // ── Polling and device refresh ────────────────────────────────────────────────
 
 async function refreshDevices() {
-  if (!cfg.hubBaseUrl || !cfg.hubAppId || (!cfg.hubToken && !cfg.hubHasToken)) {
-    return { ok: false, error: 'Hub connection not configured. Open settings.' };
+  if (!cfg.hubBaseUrl || !cfg.hubAppId) {
+    return { ok: false, error: 'Hub not configured — enter your Base URL and App ID in settings.' };
+  }
+  if (!cfg.hubToken && !cfg.hubHasToken) {
+    return { ok: false, error: 'Access token not set — paste your Maker API token in the Token field above.' };
   }
   try {
     devices = await api('/devices/all');
@@ -3812,7 +3816,7 @@ function readSettingsForm() {
   cfg.hubBaseUrl = rawUrl;
   cfg.hubAppId   = document.getElementById('cfg-app').value.trim();
   const tok      = document.getElementById('cfg-token').value.trim();
-  if (tok) cfg.hubToken = tok;
+  if (tok) { cfg.hubToken = tok; cfg.hubHasToken = true; }
   cfg.hubIsCloud = document.getElementById('cfg-is-cloud').checked;
   cfg.pollSec    = parseInt(document.getElementById('cfg-poll').value, 10) || 5;
   cfg.title      = document.getElementById('cfg-title').value.trim() || 'Home';
@@ -3945,7 +3949,7 @@ function setIoStatus(msg, kind) {
   const el = document.getElementById('io-status');
   el.className = 'status-msg ' + (kind || '');
   el.textContent = msg;
-  if (msg) setTimeout(() => { el.textContent = ''; el.className = ''; }, 4000);
+  if (msg) setTimeout(() => { el.textContent = ''; el.className = ''; }, kind === 'warn' ? 12000 : 4000);
 }
 
 document.getElementById('export-cfg').addEventListener('click', async () => {
@@ -4017,6 +4021,7 @@ function applyImportedConfig(parsed, source) {
   cfg.hubBaseUrl = hub.baseUrl || ''; cfg.hubAppId = hub.appId || '';
   cfg.hubIsCloud = !!hub.isCloud;
   if (hub.token) { cfg.hubToken = hub.token; cfg.hubHasToken = true; }
+  else if (hub.hasToken) { cfg.hubHasToken = true; }
   cfg.title   = dashboard.title   || cfg.title;
   cfg.pollSec = dashboard.pollSec || cfg.pollSec;
   if (dashboard.slots) cfg.slots = { ...DEFAULT_SLOTS, ...dashboard.slots };
@@ -4029,7 +4034,21 @@ function applyImportedConfig(parsed, source) {
   applyCssVars();
   markDirty();
   buildLayout(); renderAll(); updateNavChips(); refreshCustomDashList();
-  setIoStatus(`Imported from ${source}. Settings saved to this browser — click "Save Config to KV" to sync to all devices.`, 'ok');
+  // Also refresh the token status indicator in the settings form (which is open during import)
+  const tf = document.getElementById('cfg-token');
+  if (tf) tf.placeholder = cfg.hubToken
+    ? '••• token saved in browser; re-enter to update'
+    : cfg.hubHasToken ? '••• token not in export — paste it here to connect'
+    : 'paste Maker API access token';
+  const ts = document.getElementById('token-status');
+  if (ts) ts.textContent = cfg.hubToken ? '✓ in browser' : cfg.hubHasToken ? '⚠ token needed' : '⚠ not set';
+  const tokenMissing = !cfg.hubToken && hub.hasToken;
+  setIoStatus(
+    tokenMissing
+      ? `Imported from ${source}. Settings restored — access token was not included. Paste your Maker API token in the field above, then click "Save to Browser & Test".`
+      : `Imported from ${source}. Settings saved to this browser — click "Save Config to KV" to sync to all devices.`,
+    tokenMissing ? 'warn' : 'ok',
+  );
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
