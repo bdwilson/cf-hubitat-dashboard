@@ -3578,8 +3578,9 @@ function connectWebSocket() {
     } catch {}
   });
 
-  ws.addEventListener('close', () => {
-    console.log('Hub WebSocket closed — falling back to polling');
+  ws.addEventListener('close', e => {
+    const reason = e.reason ? ` — ${e.reason}` : '';
+    console.warn(`Hub WebSocket closed (code ${e.code})${reason} — falling back to polling`);
     ws = null;
     setWsDot(false);
     startPolling();
@@ -3590,8 +3591,8 @@ function connectWebSocket() {
     }, 30000);
   });
 
-  ws.addEventListener('error', () => {
-    // close event will follow; nothing to do here
+  ws.addEventListener('error', e => {
+    console.warn('Hub WebSocket error:', e);
   });
 }
 
