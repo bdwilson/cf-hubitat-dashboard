@@ -133,7 +133,10 @@ export async function resolveHubId(
     );
   }
 
-  if (!multiHub) {
+  // Single-hub registration check — only possible when KV is configured.
+  // In browser-only mode (no KV binding) the check is skipped and the hub
+  // ID is accepted as-is; credentials in the X-Hub-* headers are the auth.
+  if (!multiHub && env.CONFIG) {
     const registered = await env.CONFIG.get(KV_REGISTERED_HUB);
     if (!registered) {
       await env.CONFIG.put(KV_REGISTERED_HUB, hubId);
@@ -153,6 +156,7 @@ export async function resolveHubId(
  * Falls back to the legacy flat key on first access for seamless migration.
  */
 export async function loadHubConnection(env: Env, hubId: string): Promise<HubConnection> {
+  if (!env.CONFIG) return { ...DEFAULT_HUB };
   let raw = await env.CONFIG.get(hubKey(hubId, KV_HUB), 'json') as Partial<HubConnection> | null;
   if (!raw) {
     raw = await env.CONFIG.get(KV_HUB, 'json') as Partial<HubConnection> | null;
@@ -225,6 +229,13 @@ async function loadStatusBarPresenceDevices(env: Env, hubId: string): Promise<Re
 }
 
 export async function handleConfig(req: Request, env: Env): Promise<Response> {
+  if (!env.CONFIG) {
+    return json(
+      { error: 'KV not configured. This Worker is running in browser-only mode — config is stored in your browser, not on the server.' },
+      503,
+    );
+  }
+
   const hubResult = await resolveHubId(req, env);
   if (hubResult instanceof Response) return hubResult;
   const { hubId } = hubResult;
