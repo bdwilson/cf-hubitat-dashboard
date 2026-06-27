@@ -3603,7 +3603,11 @@ function setWsDot(live) {
 function handleHubEvent(evt) {
   // Hubitat eventsocket event shape:
   // { source, name, value, displayName, deviceId, unit, type }
-  if (!evt || evt.source !== 'DEVICE') return;
+  // source is 'DEVICE' on Cloud Maker API events; local /eventsocket may omit it.
+  // Only skip if source is explicitly something other than DEVICE (e.g. 'APP', 'LOCATION').
+  if (!evt || (evt.source && evt.source !== 'DEVICE')) return;
+  if (!evt.deviceId) return;
+  console.debug('[ws event]', evt.source ?? '(no source)', evt.name, evt.value, 'deviceId:', evt.deviceId);
 
   const deviceId = String(evt.deviceId);
   const device   = devices.find(d => String(d.id) === deviceId);
