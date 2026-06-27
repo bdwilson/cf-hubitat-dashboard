@@ -69,11 +69,17 @@ export async function handleHubProxy(req: Request, env: Env): Promise<Response> 
     );
   }
 
+  const upstreamHeaders = filterRequestHeaders(req.headers);
+  if (env.CF_ACCESS_CLIENT_ID && env.CF_ACCESS_CLIENT_SECRET) {
+    upstreamHeaders.set('CF-Access-Client-Id', env.CF_ACCESS_CLIENT_ID);
+    upstreamHeaders.set('CF-Access-Client-Secret', env.CF_ACCESS_CLIENT_SECRET);
+  }
+
   let upstream: Response;
   try {
     upstream = await fetch(target, {
       method: req.method,
-      headers: filterRequestHeaders(req.headers),
+      headers: upstreamHeaders,
       body: req.method === 'GET' || req.method === 'HEAD' ? undefined : await req.arrayBuffer(),
     });
   } catch (err) {

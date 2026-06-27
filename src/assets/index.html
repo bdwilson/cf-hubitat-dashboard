@@ -4100,6 +4100,15 @@ function applyImportedConfig(parsed, source) {
   if (cloudCb) cloudCb.checked = cfg.hubBaseUrl
     ? cfg.hubBaseUrl.includes('cloud.hubitat.com')
     : !!cfg.hubIsCloud;
+  // Sync Hub ID display to the imported URL
+  const hubIdDisplay = document.getElementById('hub-id-display');
+  const hubIdRow = document.getElementById('hub-id-row');
+  if (hubIdDisplay) {
+    const cloudMatch = cfg.hubBaseUrl ? cfg.hubBaseUrl.match(/cloud\.hubitat\.com\/api\/([a-f0-9-]+)/i) : null;
+    const hubId = cloudMatch ? cloudMatch[1] : (localStorage.getItem('hubitat-hub-instance-id') || '(will be auto-generated)');
+    hubIdDisplay.value = hubId;
+    if (hubIdRow) hubIdRow.style.display = '';
+  }
   // Also refresh the token status indicator in the settings form (which is open during import)
   const tf = document.getElementById('cfg-token');
   if (tf) tf.placeholder = cfg.hubToken
