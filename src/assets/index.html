@@ -3780,7 +3780,19 @@ document.getElementById('test-conn').addEventListener('click', async () => {
   if (r.ok) {
     const imgCount = devices.filter(isImageDevice).length;
     setStatus(`✓ Connected. ${devices.length} devices (${imgCount} image device${imgCount===1?'':'s'}).`, 'ok');
-    saveConfigCache(); // persist token to browser localStorage
+    // Snapshot presence picker selections before rebuilding the list so checked
+    // boxes aren't lost when refreshPresencePickerList() recreates the DOM.
+    document.querySelectorAll('.presence-bar-cb').forEach(cb => {
+      const id = cb.dataset.deviceId;
+      if (cb.checked) {
+        const labelInput = document.querySelector(`.presence-bar-label[data-device-id="${id}"]`);
+        const label = (labelInput && labelInput.value.trim()) || labelInput?.placeholder || id;
+        statusBarPresenceDevices[id] = { label, kind: 'presence' };
+      } else {
+        delete statusBarPresenceDevices[id];
+      }
+    });
+    saveConfigCache();
     renderAll();
     refreshPresencePickerList();
     if (ws) { ws.close(); ws = null; }
