@@ -156,21 +156,24 @@ async function handleWebSocketProxy(req: Request, env: Env): Promise<Response> {
     );
   }
 
-  const wsBase = baseUrl.replace(/^https/, 'wss').replace(/^http(?!s)/, 'ws');
-  const hubWsUrl = `${wsBase.replace(/\/+$/, '')}/eventsocket`;
+  const cleanBase = baseUrl.replace(/\/+$/, '');
+  // fetch() only accepts http/https — NOT wss/ws. new WebSocket() is the opposite.
+  const hubFetchUrl = `${cleanBase}/eventsocket`;
+  const hubWsUrl   = hubFetchUrl.replace(/^https/, 'wss').replace(/^http(?!s)/, 'ws');
 
   const pair = new WebSocketPair();
   const [client, server] = [pair[0], pair[1]];
   server.accept();
 
-  console.log(`[ws] connecting to ${hubWsUrl} (CF Access: ${!!(env.CF_ACCESS_CLIENT_ID && env.CF_ACCESS_CLIENT_SECRET)})`);
+  console.log(`[ws] connecting to ${hubFetchUrl} (CF Access: ${!!(env.CF_ACCESS_CLIENT_ID && env.CF_ACCESS_CLIENT_SECRET)})`);
 
   let hubWs: WebSocket;
   try {
     if (env.CF_ACCESS_CLIENT_ID && env.CF_ACCESS_CLIENT_SECRET) {
       // Tunnel is protected by CF Access — use fetch() so we can send the
       // service token headers (new WebSocket() doesn't support custom headers).
-      const upgradeResp = await fetch(hubWsUrl, {
+      // fetch() requires https:// not wss:// for WebSocket upgrades.
+      const upgradeResp = await fetch(hubFetchUrl, {
         headers: {
           'Upgrade': 'websocket',
           'CF-Access-Client-Id': env.CF_ACCESS_CLIENT_ID,
