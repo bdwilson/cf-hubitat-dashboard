@@ -19,6 +19,18 @@ export interface Env {
    * caller can read/write any hub's config. Defaults to false (single-hub).
    */
   MULTI_HUB?: string;
+  /**
+   * CF Access service token for authenticating outbound Worker → tunnel requests.
+   * Required when the Hubitat Cloudflare Tunnel is protected by CF Access.
+   * Create in Zero Trust → Access → Service Auth → Service Tokens.
+   * Add via: wrangler secret put CF_ACCESS_CLIENT_ID
+   */
+  CF_ACCESS_CLIENT_ID?: string;
+  /**
+   * Paired secret for CF_ACCESS_CLIENT_ID.
+   * Add via: wrangler secret put CF_ACCESS_CLIENT_SECRET
+   */
+  CF_ACCESS_CLIENT_SECRET?: string;
 }
 
 /** Hub connection details — stored server-side in KV. */

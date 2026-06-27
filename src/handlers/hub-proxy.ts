@@ -22,8 +22,9 @@
  *   Proxies to ws://{hub}/eventsocket (LAN/tunnel only; cloud falls back to
  *   polling — the cloud API does not expose a WebSocket event stream).
  *
- * TODO: WebSocket via Cloudflare Tunnel — explore passing hub URL as a query
- *   param so browser-mode users can also get real-time events without KV.
+ * CF Access on the tunnel: set CF_ACCESS_CLIENT_ID + CF_ACCESS_CLIENT_SECRET
+ *   Worker secrets. The Worker uses fetch()+Upgrade header (not new WebSocket())
+ *   to inject the service token on outbound connections.
  */
 
 import { loadHubConnection, resolveHubId } from './config';
@@ -129,16 +130,19 @@ async function handleWebSocketProxy(req: Request, env: Env): Promise<Response> {
   if (hubResult instanceof Response) return hubResult;
   const { hubId } = hubResult;
 
+  // Base URL: KV first, then ?hubBaseUrl query param (browser-only / no-KV mode).
+  // The eventsocket is unauthenticated so no token is needed here.
   const hub = await loadHubConnection(env, hubId);
+  const baseUrl = hub.baseUrl || url.searchParams.get('hubBaseUrl') || '';
 
-  if (!hub.baseUrl) {
+  if (!baseUrl) {
     return new Response(
-      'Hub base URL not configured in KV. WebSocket requires hub URL saved to KV (Settings → Save Config to KV).',
+      'Hub base URL not configured. Either save hub settings to KV or ensure hub URL is set in dashboard settings.',
       { status: 503 },
     );
   }
 
-  const isCloud = hub.isCloud ?? hub.baseUrl.includes('cloud.hubitat.com');
+  const isCloud = (hub.isCloud ?? false) || baseUrl.includes('cloud.hubitat.com');
   if (isCloud) {
     return new Response(
       'WebSocket events not available for Hubitat Cloud URLs; the dashboard will use polling instead.',
@@ -146,7 +150,7 @@ async function handleWebSocketProxy(req: Request, env: Env): Promise<Response> {
     );
   }
 
-  const wsBase = hub.baseUrl.replace(/^https/, 'wss').replace(/^http(?!s)/, 'ws');
+  const wsBase = baseUrl.replace(/^https/, 'wss').replace(/^http(?!s)/, 'ws');
   const hubWsUrl = `${wsBase.replace(/\/+$/, '')}/eventsocket`;
 
   const pair = new WebSocketPair();
@@ -155,7 +159,26 @@ async function handleWebSocketProxy(req: Request, env: Env): Promise<Response> {
 
   let hubWs: WebSocket;
   try {
-    hubWs = new WebSocket(hubWsUrl);
+    if (env.CF_ACCESS_CLIENT_ID && env.CF_ACCESS_CLIENT_SECRET) {
+      // Tunnel is protected by CF Access — use fetch() so we can send the
+      // service token headers (new WebSocket() doesn't support custom headers).
+      const upgradeResp = await fetch(hubWsUrl, {
+        headers: {
+          'Upgrade': 'websocket',
+          'CF-Access-Client-Id': env.CF_ACCESS_CLIENT_ID,
+          'CF-Access-Client-Secret': env.CF_ACCESS_CLIENT_SECRET,
+        },
+      });
+      const ws = upgradeResp.webSocket;
+      if (!ws) {
+        const text = await upgradeResp.text().catch(() => '');
+        throw new Error(`Hub did not upgrade to WebSocket (status ${upgradeResp.status}${text ? ': ' + text.substring(0, 100) : ''})`);
+      }
+      ws.accept();
+      hubWs = ws;
+    } else {
+      hubWs = new WebSocket(hubWsUrl);
+    }
   } catch (err) {
     server.close(1011, `Could not connect to hub: ${err instanceof Error ? err.message : String(err)}`);
     return new Response(null, { status: 101, webSocket: client });

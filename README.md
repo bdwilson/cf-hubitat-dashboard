@@ -221,9 +221,9 @@ Visiting your Worker URL will now redirect to a Cloudflare login page. After aut
 
 ## Optional: Cloudflare Tunnel to your hub
 
-> **Most users don't need this.** The Hubitat Cloud Maker API works fine and is the recommended starting point. A Tunnel bypasses Hubitat Cloud, but currently provides no meaningful advantage — the dashboard polls for updates either way. The one future benefit would be real-time WebSocket updates: if the Worker could proxy the hub's event stream over a Tunnel, tiles would update instantly instead of polling every 5 seconds. That isn't implemented yet, but it's the reason the Tunnel path exists.
+> **Most users don't need this.** The Hubitat Cloud Maker API works fine and is the recommended starting point. The main reason to use a Tunnel is **real-time WebSocket updates** — with a Tunnel the Worker can proxy the hub's `/eventsocket` stream so tiles update instantly instead of polling every 5 seconds. It also avoids Hubitat Cloud rate limits and keeps all traffic on your own infrastructure.
 
-If you want to use a Tunnel anyway (e.g., to avoid Hubitat Cloud rate limits or keep all traffic local):
+### Step 1 — Create the tunnel
 
 1. Install `cloudflared` on any machine on your LAN that can reach the hub
 2. `cloudflared tunnel login`
@@ -239,8 +239,36 @@ If you want to use a Tunnel anyway (e.g., to avoid Hubitat Cloud rate limits or 
    ```
 5. `cloudflared tunnel route dns hubitat hubitat.yourdomain.com`
 6. `cloudflared tunnel run hubitat`
-7. In the dashboard settings, use `https://hubitat.yourdomain.com` as the Base URL
-8. Add a CF Access policy on that hostname too so only the Worker can reach it
+7. In the dashboard settings, use `https://hubitat.yourdomain.com` as the Base URL (uncheck "Hubitat Cloud URL")
+
+### Step 2 — Protect the tunnel with CF Access + a service token
+
+Your tunnel hostname is publicly reachable, so you should put CF Access in front of it. But the dashboard Worker also needs to reach it (to proxy API calls and WebSocket events), so you can't use a human login — you use a **service token** instead.
+
+**Create the service token:**
+
+1. In the Cloudflare dashboard go to **Zero Trust → Access → Service Auth → Service Tokens**
+2. Click **Create Service Token** — give it a name like `hubitat-dashboard-worker`
+3. Copy the **Client ID** and **Client Secret** (the secret is shown only once)
+
+**Add the secrets to your Worker:**
+
+```bash
+wrangler secret put CF_ACCESS_CLIENT_ID    # paste the Client ID
+wrangler secret put CF_ACCESS_CLIENT_SECRET # paste the Client Secret
+```
+
+Or if deploying via GitHub Actions, add `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` as repository secrets and reference them in the workflow.
+
+**Create a CF Access application for the tunnel:**
+
+1. Go to **Zero Trust → Access → Applications → Add an application → Self-hosted**
+2. Set the application domain to `hubitat.yourdomain.com`
+3. Add two policies:
+   - **Allow humans**: Selector = Emails, your email address (same as your dashboard policy)
+   - **Allow Worker**: Action = Service Auth, Selector = Service Token, choose the token you just created
+
+Now the tunnel is locked down — only your browser (via human login) and the Worker (via service token) can reach it. The dashboard Worker automatically uses the service token for all outbound requests to the tunnel, including the WebSocket event stream.
 
 ---
 
