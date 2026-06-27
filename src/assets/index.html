@@ -4111,8 +4111,15 @@ function applyImportedConfig(parsed, source) {
   if (dashboard.layout) cfg.layout = dashboard.layout;
   if (typeof dashboard.gridCols === 'number') cfg.gridCols = dashboard.gridCols;
   if (typeof dashboard.tileH    === 'number') cfg.tileH    = dashboard.tileH;
-  if (parsed.dynamic) dynamicHidden = parsed.dynamic.hidden || {};
-  if (parsed.custom)  customDashboards = parsed.custom;
+  if (parsed.dynamic) {
+    dynamicHidden    = parsed.dynamic.hidden    || {};
+    dynamicOrder     = parsed.dynamic.order     || {};
+    dynamicOverrides = parsed.dynamic.overrides || {};
+  }
+  if (parsed.custom)                   customDashboards         = parsed.custom;
+  if (parsed.dashboardsVisible)        dashboardsVisible        = parsed.dashboardsVisible;
+  if (parsed.dashboardsOrder)          dashboardsOrder          = parsed.dashboardsOrder;
+  if (parsed.statusBarPresenceDevices) statusBarPresenceDevices = parsed.statusBarPresenceDevices;
   saveConfigCache();
   applyCssVars();
   markDirty();
