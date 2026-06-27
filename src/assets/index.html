@@ -3750,19 +3750,27 @@ document.getElementById('save-cfg').addEventListener('click', async () => {
 });
 
 document.getElementById('reset-cfg').addEventListener('click', async () => {
-  if (!confirm('Reset ALL dashboard config in KV? Wipes hub credentials, labels, mappings — everything.')) return;
+  if (!confirm('Wipe ALL dashboard config from browser and KV (if configured)? Cannot be undone.')) return;
+  let kvMsg = '';
   try {
     const r = await fetch(API_CONFIG, { method: 'DELETE', credentials: 'same-origin', headers: workerHeaders() });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    localStorage.removeItem(STORAGE_KEY);
-    cfg = JSON.parse(JSON.stringify(defaultConfig));
-    dynamicHidden = {}; customDashboards = {};
-    devices = [];
-    buildLayout(); renderAll(); openSettings();
-    setStatus('Config wiped from KV and cache.', 'ok');
+    if (r.status === 503) {
+      kvMsg = ' (KV not configured — browser only)';
+    } else if (!r.ok) {
+      throw new Error(`HTTP ${r.status}`);
+    }
   } catch (e) {
     setStatus(`✗ Reset failed: ${e.message}`, 'err');
+    return;
   }
+  localStorage.removeItem(STORAGE_KEY);
+  cfg = JSON.parse(JSON.stringify(defaultConfig));
+  dynamicHidden = {}; dynamicOrder = {}; dynamicOverrides = {};
+  customDashboards = {}; dashboardsVisible = {}; dashboardsOrder = [];
+  statusBarPresenceDevices = {};
+  devices = [];
+  buildLayout(); renderAll(); openSettings();
+  setStatus(`Config wiped${kvMsg}.`, 'ok');
 });
 
 document.getElementById('test-conn').addEventListener('click', async () => {
@@ -4034,6 +4042,13 @@ function applyImportedConfig(parsed, source) {
   applyCssVars();
   markDirty();
   buildLayout(); renderAll(); updateNavChips(); refreshCustomDashList();
+  // Sync form fields to the newly imported values so readSettingsForm() doesn't overwrite them
+  const urlField = document.getElementById('cfg-url');
+  if (urlField) urlField.value = cfg.hubBaseUrl;
+  const appField = document.getElementById('cfg-app');
+  if (appField) appField.value = cfg.hubAppId;
+  const cloudCb = document.getElementById('cfg-is-cloud');
+  if (cloudCb) cloudCb.checked = !!cfg.hubIsCloud;
   // Also refresh the token status indicator in the settings form (which is open during import)
   const tf = document.getElementById('cfg-token');
   if (tf) tf.placeholder = cfg.hubToken
