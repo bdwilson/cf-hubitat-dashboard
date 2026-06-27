@@ -1115,20 +1115,22 @@ function saveConfigCache() {
 //
 // The hub UID namespaces all KV keys so multiple hubs can share one Worker.
 // For cloud URLs it is extracted from the base URL automatically.
-// For LAN/tunnel URLs a persistent UUID is generated and stored in localStorage.
+// For LAN/tunnel URLs the Hub ID is derived from the hostname so every browser
+// visiting the same tunnel URL shares the same KV namespace automatically.
 
-function extractHubId() {
-  if (cfg.hubBaseUrl) {
-    const m = cfg.hubBaseUrl.match(/cloud\.hubitat\.com\/api\/([a-f0-9-]+)/i);
-    if (m) return m[1];
-    // LAN/tunnel URL — use a persistent browser-stored UUID
-    const INST_KEY = 'hubitat-hub-instance-id';
-    let id = localStorage.getItem(INST_KEY);
-    if (!id) { id = crypto.randomUUID(); localStorage.setItem(INST_KEY, id); }
-    return id;
+function extractHubId(urlOverride) {
+  const base = urlOverride || cfg.hubBaseUrl;
+  if (base) {
+    const cloudMatch = base.match(/cloud\.hubitat\.com\/api\/([a-f0-9-]+)/i);
+    if (cloudMatch) return cloudMatch[1];
+    // LAN/tunnel: use hostname so the ID is deterministic and the same on every device
+    try {
+      const hostname = new URL(base).hostname;
+      if (hostname) return hostname;
+    } catch {}
   }
-  // No base URL yet — return stored LAN ID if present so we don't re-register on reload
-  return localStorage.getItem('hubitat-hub-instance-id');
+  // No base URL yet — nothing to derive from
+  return '';
 }
 
 function workerHeaders(extra = {}) {
@@ -3829,18 +3831,9 @@ document.getElementById('cfg-url').addEventListener('input', e => {
   const hubIdDisplay = document.getElementById('hub-id-display');
   const hubIdRow    = document.getElementById('hub-id-row');
   if (hubIdDisplay) {
-    const cloudMatch = url.match(/cloud\.hubitat\.com\/api\/([a-f0-9-]+)/i);
-    let hubId;
-    if (cloudMatch) {
-      hubId = cloudMatch[1];
-    } else {
-      // LAN/tunnel URL — use existing UUID or generate a new one
-      const INST_KEY = 'hubitat-hub-instance-id';
-      hubId = localStorage.getItem(INST_KEY);
-      if (!hubId) { hubId = crypto.randomUUID(); localStorage.setItem(INST_KEY, hubId); }
-    }
-    hubIdDisplay.value = hubId;
-    if (hubIdRow) hubIdRow.style.display = '';
+    const hubId = extractHubId(url);
+    hubIdDisplay.value = hubId || '';
+    if (hubIdRow) hubIdRow.style.display = hubId ? '' : 'none';
   }
 });
 
@@ -4137,10 +4130,9 @@ function applyImportedConfig(parsed, source) {
   const hubIdDisplay = document.getElementById('hub-id-display');
   const hubIdRow = document.getElementById('hub-id-row');
   if (hubIdDisplay) {
-    const cloudMatch = cfg.hubBaseUrl ? cfg.hubBaseUrl.match(/cloud\.hubitat\.com\/api\/([a-f0-9-]+)/i) : null;
-    const hubId = cloudMatch ? cloudMatch[1] : (localStorage.getItem('hubitat-hub-instance-id') || '(will be auto-generated)');
-    hubIdDisplay.value = hubId;
-    if (hubIdRow) hubIdRow.style.display = '';
+    const hubId = extractHubId();
+    hubIdDisplay.value = hubId || '';
+    if (hubIdRow) hubIdRow.style.display = hubId ? '' : 'none';
   }
   // Also refresh the token status indicator in the settings form (which is open during import)
   const tf = document.getElementById('cfg-token');
