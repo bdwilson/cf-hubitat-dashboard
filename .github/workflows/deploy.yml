@@ -30,3 +30,15 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          # Push CF Access service token secrets to Cloudflare if configured.
+          # Only needed when your Hubitat tunnel is protected by CF Access.
+          # Add CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET to your repo
+          # secrets (Settings → Secrets and variables → Actions) to enable.
+          preCommands: |
+            if [ -n "$CF_ACCESS_CLIENT_ID" ]; then
+              echo "$CF_ACCESS_CLIENT_ID" | wrangler secret put CF_ACCESS_CLIENT_ID
+              echo "$CF_ACCESS_CLIENT_SECRET" | wrangler secret put CF_ACCESS_CLIENT_SECRET
+            fi
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
