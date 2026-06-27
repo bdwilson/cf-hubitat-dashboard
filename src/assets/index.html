@@ -3544,9 +3544,17 @@ function stopPolling() {
 
 function connectWebSocket() {
   if (ws) return; // already connected
+  // Cloud Maker API has no WebSocket event stream — skip and use polling.
+  if (cfg.hubIsCloud) { startPolling(); return; }
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const hubId = extractHubId();
-  const query = hubId ? `?hubId=${encodeURIComponent(hubId)}` : '';
+  const params = new URLSearchParams();
+  if (hubId) params.set('hubId', hubId);
+  // Pass hub base URL as a query param so the Worker can proxy the eventsocket
+  // even in browser-only mode (no KV).  The eventsocket itself is unauthenticated
+  // so no token is exposed here.
+  if (cfg.hubBaseUrl) params.set('hubBaseUrl', cfg.hubBaseUrl);
+  const query = params.size ? `?${params}` : '';
   const url   = `${proto}//${location.host}/api/hub/events${query}`;
 
   try {

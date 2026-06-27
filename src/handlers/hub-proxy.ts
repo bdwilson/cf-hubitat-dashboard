@@ -129,16 +129,19 @@ async function handleWebSocketProxy(req: Request, env: Env): Promise<Response> {
   if (hubResult instanceof Response) return hubResult;
   const { hubId } = hubResult;
 
+  // Base URL: KV first, then ?hubBaseUrl query param (browser-only / no-KV mode).
+  // The eventsocket is unauthenticated so no token is needed here.
   const hub = await loadHubConnection(env, hubId);
+  const baseUrl = hub.baseUrl || url.searchParams.get('hubBaseUrl') || '';
 
-  if (!hub.baseUrl) {
+  if (!baseUrl) {
     return new Response(
-      'Hub base URL not configured in KV. WebSocket requires hub URL saved to KV (Settings → Save Config to KV).',
+      'Hub base URL not configured. Either save hub settings to KV or ensure hub URL is set in dashboard settings.',
       { status: 503 },
     );
   }
 
-  const isCloud = hub.isCloud ?? hub.baseUrl.includes('cloud.hubitat.com');
+  const isCloud = (hub.isCloud ?? false) || baseUrl.includes('cloud.hubitat.com');
   if (isCloud) {
     return new Response(
       'WebSocket events not available for Hubitat Cloud URLs; the dashboard will use polling instead.',
@@ -146,7 +149,7 @@ async function handleWebSocketProxy(req: Request, env: Env): Promise<Response> {
     );
   }
 
-  const wsBase = hub.baseUrl.replace(/^https/, 'wss').replace(/^http(?!s)/, 'ws');
+  const wsBase = baseUrl.replace(/^https/, 'wss').replace(/^http(?!s)/, 'ws');
   const hubWsUrl = `${wsBase.replace(/\/+$/, '')}/eventsocket`;
 
   const pair = new WebSocketPair();
