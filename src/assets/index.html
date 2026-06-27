@@ -3815,7 +3815,28 @@ document.getElementById('test-conn').addEventListener('click', async () => {
 
 document.getElementById('cfg-url').addEventListener('input', e => {
   const url = e.target.value.trim();
-  if (url) document.getElementById('cfg-is-cloud').checked = url.includes('cloud.hubitat.com');
+  if (!url) return;
+
+  // Auto-set cloud checkbox based on URL
+  document.getElementById('cfg-is-cloud').checked = url.includes('cloud.hubitat.com');
+
+  // Update Hub ID display to reflect what ID would be used with this URL
+  const hubIdDisplay = document.getElementById('hub-id-display');
+  const hubIdRow    = document.getElementById('hub-id-row');
+  if (hubIdDisplay) {
+    const cloudMatch = url.match(/cloud\.hubitat\.com\/api\/([a-f0-9-]+)/i);
+    let hubId;
+    if (cloudMatch) {
+      hubId = cloudMatch[1];
+    } else {
+      // LAN/tunnel URL — use existing UUID or generate a new one
+      const INST_KEY = 'hubitat-hub-instance-id';
+      hubId = localStorage.getItem(INST_KEY);
+      if (!hubId) { hubId = crypto.randomUUID(); localStorage.setItem(INST_KEY, hubId); }
+    }
+    hubIdDisplay.value = hubId;
+    if (hubIdRow) hubIdRow.style.display = '';
+  }
 });
 
 document.getElementById('show-token-cb').addEventListener('change', async e => {
