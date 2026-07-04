@@ -101,6 +101,8 @@ export interface DashboardConfig {
   gridCols?: number;
   /** Tile row height in pixels. Default 80. */
   tileH?: number;
+  /** Global icon size multiplier (0.5-2.5). Default 1. */
+  iconScale?: number;
 }
 
 /** Dynamic dashboard visibility — hidden[deviceId] = true means hidden */
