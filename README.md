@@ -2,6 +2,10 @@
 
 Smartly-style replacement dashboard for Hubitat Elevation, hosted on Cloudflare Workers with config in KV.
 
+<img src="docs/dashboard-preview.svg" alt="Dashboard preview: locks, switches, garage door, presence, valve, and shade tiles with a status bar showing HSM, mode, and presence" width="700">
+
+*Mockup illustration of the main dashboard layout — not a live screenshot. Tile colors: green = active/safe, red = alert, gray = inactive.*
+
 ## What you get
 
 - Single-page dashboard accessible from anywhere (phone, iPad, desktop)
@@ -206,6 +210,18 @@ Click **Save to Browser & Test** — this saves your credentials to browser loca
 
 - Click **Save Config to KV** to persist tile layout and settings server-side and sync across devices (recommended — hub token is never included)
 - Or click **Close** to keep everything in browser localStorage only
+
+---
+
+## Customizing tiles
+
+Tap **EDIT** to enter edit mode, then tap any tile to open its editor — pick the device, tile type, visual style, and size. Tiles with a meaningful icon (switches, locks, garages, valves, shades) get an **Icon** field with a searchable picker across 100+ built-in icons:
+
+<img src="docs/icon-picker-preview.svg" alt="Icon picker modal showing a search box filtered to 'fan' with fan, ceiling-fan, fan-speed-1, valve, and lock icon options" width="600">
+
+*Mockup illustration of the icon picker — not a live screenshot.*
+
+Binary-state tiles (switch, lock, garage, valve, shade) let you set separate icons for each state — e.g. a different icon for "locked" vs. "unlocked," or "open" vs. "closed" — so the tile still visually distinguishes state even with custom icons.
 
 ---
 
