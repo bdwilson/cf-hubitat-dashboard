@@ -3,8 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Hubitat">
+<meta name="theme-color" content="#0d1117">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
 <title>Hubitat Dashboard</title>
 <style>
   :root {
@@ -25,6 +32,7 @@
     --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
     --grid-cols: 3;
     --row-h: 80px;
+    --icon-scale: 1;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
@@ -189,7 +197,7 @@
   .tile:active { transform: scale(0.98); }
   .tile-label { font-size: clamp(9px, calc(var(--row-h, 80px) * 0.165), 16px); color: var(--tile-label); font-weight: 500; line-height: 1.15; }
   .tile-value { font-size: clamp(10px, calc(var(--row-h, 80px) * 0.185), 18px); font-weight: 600; color: var(--tile-text); line-height: 1; display: flex; align-items: center; justify-content: center; gap: 6px; }
-  .tile-value svg { width: 1.2em; height: 1.2em; flex-shrink: 0; fill: currentColor; }
+  .tile-value svg { width: calc(1.2em * var(--icon-scale, 1)); height: calc(1.2em * var(--icon-scale, 1)); flex-shrink: 0; fill: currentColor; }
   .tile-battery {
     position: absolute; top: 6px; left: 8px;
     font-size: 10px; color: var(--tile-label); font-weight: 500;
@@ -644,6 +652,10 @@
         <option value="136">XL — 136 px</option>
       </select>
     </div>
+    <div class="form-row">
+      <label>Icon size <span id="cfg-icon-scale-out" style="color:var(--tile-text)">100%</span></label>
+      <input type="range" id="cfg-icon-scale" min="0.5" max="2.5" step="0.1" value="1" />
+    </div>
     <div class="btn-row">
       <button class="btn" id="test-conn">Save to Browser &amp; Test</button>
       <button class="btn" id="save-cfg">☁ Save Config to KV</button>
@@ -1032,6 +1044,7 @@ const defaultConfig = {
   layout: null,   // null = use LAYOUT_DEFAULTS
   gridCols: 3,    // grid columns per section
   tileH: 80,      // tile row height in px
+  iconScale: 1,   // global icon size multiplier
 };
 
 // Dynamic dashboard definitions
@@ -1252,9 +1265,10 @@ function applyServerConfig(serverCfg) {
     if (serverCfg.dashboard.slots) {
       cfg.slots = { ...DEFAULT_SLOTS, ...serverCfg.dashboard.slots };
     }
-    if (serverCfg.dashboard.layout)   cfg.layout   = serverCfg.dashboard.layout;
-    if (serverCfg.dashboard.gridCols) cfg.gridCols = serverCfg.dashboard.gridCols;
-    if (serverCfg.dashboard.tileH)    cfg.tileH    = serverCfg.dashboard.tileH;
+    if (serverCfg.dashboard.layout)    cfg.layout    = serverCfg.dashboard.layout;
+    if (serverCfg.dashboard.gridCols)  cfg.gridCols  = serverCfg.dashboard.gridCols;
+    if (serverCfg.dashboard.tileH)     cfg.tileH     = serverCfg.dashboard.tileH;
+    if (serverCfg.dashboard.iconScale) cfg.iconScale = serverCfg.dashboard.iconScale;
     applyCssVars();
   }
   if (serverCfg.hub) {
@@ -1294,6 +1308,7 @@ function applyServerConfig(serverCfg) {
 function applyCssVars() {
   document.documentElement.style.setProperty('--grid-cols', String(cfg.gridCols || 3));
   document.documentElement.style.setProperty('--row-h', `${cfg.tileH || 80}px`);
+  document.documentElement.style.setProperty('--icon-scale', String(cfg.iconScale || 1));
 }
 
 // ── Layout helpers ────────────────────────────────────────────────────────────
@@ -3992,6 +4007,8 @@ function openSettings() {
   document.getElementById('cfg-title').value            = cfg.title || 'Home';
   document.getElementById('cfg-grid-cols').value        = String(cfg.gridCols || 3);
   document.getElementById('cfg-tile-h').value           = String(cfg.tileH || 80);
+  document.getElementById('cfg-icon-scale').value       = String(cfg.iconScale || 1);
+  document.getElementById('cfg-icon-scale-out').textContent = `${Math.round((cfg.iconScale || 1) * 100)}%`;
   refreshPresencePickerList();
   refreshCustomDashList();
   renderDashboardManager();
@@ -4018,6 +4035,7 @@ document.getElementById('save-cfg').addEventListener('click', async () => {
         title: cfg.title, pollSec: cfg.pollSec,
         slots: cfg.slots, layout: cfg.layout,
         gridCols: cfg.gridCols, tileH: cfg.tileH,
+        iconScale: cfg.iconScale,
       },
     };
     if (Object.keys(dynamicHidden).length || Object.keys(dynamicOrder).length || Object.keys(dynamicOverrides).length) {
@@ -4133,6 +4151,12 @@ document.getElementById('cfg-url').addEventListener('input', e => {
   }
 });
 
+document.getElementById('cfg-icon-scale').addEventListener('input', e => {
+  const scale = parseFloat(e.target.value) || 1;
+  document.getElementById('cfg-icon-scale-out').textContent = `${Math.round(scale * 100)}%`;
+  document.documentElement.style.setProperty('--icon-scale', String(scale));
+});
+
 document.getElementById('show-token-cb').addEventListener('change', async e => {
   const tf = document.getElementById('cfg-token');
   if (e.target.checked) {
@@ -4173,6 +4197,7 @@ function readSettingsForm() {
   cfg.title      = document.getElementById('cfg-title').value.trim() || 'Home';
   cfg.gridCols   = parseInt(document.getElementById('cfg-grid-cols').value, 10) || 3;
   cfg.tileH      = parseInt(document.getElementById('cfg-tile-h').value, 10) || 80;
+  cfg.iconScale  = parseFloat(document.getElementById('cfg-icon-scale').value) || 1;
   applyCssVars();
 }
 function setStatus(msg, kind) {
@@ -4319,12 +4344,13 @@ document.getElementById('export-cfg').addEventListener('click', async () => {
         ...(inc && cfg.hubToken ? { token: cfg.hubToken } : { hasToken: cfg.hubHasToken }),
       },
       dashboard: {
-        title:    cfg.title,
-        pollSec:  cfg.pollSec,
-        slots:    cfg.slots,
-        layout:   cfg.layout,
-        gridCols: cfg.gridCols,
-        tileH:    cfg.tileH,
+        title:     cfg.title,
+        pollSec:   cfg.pollSec,
+        slots:     cfg.slots,
+        layout:    cfg.layout,
+        gridCols:  cfg.gridCols,
+        tileH:     cfg.tileH,
+        iconScale: cfg.iconScale,
       },
       dynamic:                  { hidden: dynamicHidden, order: dynamicOrder, overrides: dynamicOverrides },
       custom:                   customDashboards,
@@ -4398,8 +4424,9 @@ function applyImportedConfig(parsed, source) {
   cfg.pollSec = dashboard.pollSec || cfg.pollSec;
   if (dashboard.slots) cfg.slots = { ...DEFAULT_SLOTS, ...dashboard.slots };
   if (dashboard.layout) cfg.layout = dashboard.layout;
-  if (typeof dashboard.gridCols === 'number') cfg.gridCols = dashboard.gridCols;
-  if (typeof dashboard.tileH    === 'number') cfg.tileH    = dashboard.tileH;
+  if (typeof dashboard.gridCols  === 'number') cfg.gridCols  = dashboard.gridCols;
+  if (typeof dashboard.tileH     === 'number') cfg.tileH     = dashboard.tileH;
+  if (typeof dashboard.iconScale === 'number') cfg.iconScale = dashboard.iconScale;
   if (parsed.dynamic) {
     dynamicHidden    = parsed.dynamic.hidden    || {};
     dynamicOrder     = parsed.dynamic.order     || {};
