@@ -31,7 +31,7 @@ The dashboard is a single static HTML file (`src/assets/index.html`) served by t
 
 **Why a Worker instead of hosting on the hub itself**: cross-device config sync (KV is the source of truth), public access via CF Access without exposing the hub to the internet, no localStorage drift between phone/iPad/desktop, and no CORS gymnastics.
 
-**Why credentials in KV not env vars**: hub connection can be edited from the dashboard UI without redeploying. The Worker reads from KV at request time; secrets never reach the browser unless the request is `GET /api/config?include_secrets=1` (admin UI only).
+**Where the hub token actually lives**: in the primary UI flow ("Save to Browser & Test"), the token is stored in the browser's `localStorage` and sent to the Worker per-request via the `X-Hub-Token` header — it is **never** written to KV by the settings UI (`save-cfg` handler explicitly omits it from the PUT payload). `hub-proxy.ts`'s `resolveHubConnection()` checks these request headers first. KV-stored credentials (`{hubId}:hub-connection` with a `token` field, set via `wrangler kv key put` from the CLI) are a secondary, legacy path the Worker falls back to only when the browser sends no `X-Hub-Token` header — useful for a shared kiosk display where you don't want the token in any browser's storage. `GET /api/config?include_secrets=1` exists to let the settings UI read back a CLI-set KV token for display; it is not how the token gets into KV in the normal flow.
 
 ## File layout
 
@@ -182,7 +182,8 @@ npx wrangler kv key get registered-hub-id --binding=CONFIG
 ## Security model
 
 - **Auth**: Cloudflare Access in front of the Worker. Worker reads `CF-Access-Authenticated-User-Email`.
-- **Hub token**: lives in KV. Browser only receives it via `/api/config?include_secrets=1` (admin only). Hub-proxy injects it server-side; browser never sees it during normal operation.
+- **Hub token**: lives in the browser's `localStorage` by default, sent per-request via the `X-Hub-Token` header — this is the normal flow, not a fallback. Never written to KV by the settings UI. KV-based storage (no token in any browser) is available as a CLI-only advanced option — see "Where the hub token actually lives" above.
+- **CF Access service token** (optional): if `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` Worker secrets are set, they're injected as headers on every outbound request to the hub (both regular proxy calls and the WebSocket event stream) so the Worker can authenticate through a CF-Access-protected Cloudflare Tunnel. See `hub-proxy.ts`.
 - **Camera image URLs**: the Worker does NOT proxy camera images — the browser fetches them directly. If cameras are on LAN and dashboard is accessed via CF Access, snapshots won't load remotely. Known limitation. Options: (a) Cloudflare Tunnel for cameras, (b) add `/api/image-proxy?url=...` route.
 - **Rate limiting**: not enforced. Cloudflare's free tier rate limiting can be added separately.
 - **CSP**: not set. Should be added: `default-src 'self'; img-src *; connect-src 'self'`.
@@ -211,8 +212,8 @@ npx wrangler kv key get registered-hub-id --binding=CONFIG
 
 ## Open questions / future work
 
+- [x] ~~WebSocket via Cloudflare Tunnel for real-time updates~~ — **done.** `hubBaseUrl` is passed as a `?hubBaseUrl=` query param on the WS upgrade so browser-only mode works without KV; CF Access service token (`CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET`) is supported via `fetch()`+`Upgrade` header for tunnels behind CF Access. See `hub-proxy.ts`'s `handleWebSocketProxy()`.
 - [ ] Image proxy route so remote cameras work behind CF Access (`/api/image-proxy?url=...`)
-- [ ] WebSocket via Cloudflare Tunnel for real-time updates — cloud Maker API does not support WebSocket; LAN/tunnel hub URLs do expose `/eventsocket`. Currently WebSocket proxy requires hub base URL in KV (`hub-connection` key) because the browser WebSocket API cannot send custom headers on the upgrade request. Options to explore: (a) pass hub URL as a query param on the upgrade request so browser-mode users don't need KV, (b) pre-auth handshake that issues a short-lived token, (c) if worker runs on local LAN it may be able to reach hub IP directly without Tunnel
 - [ ] Per-user config isolation (key KV by CF-Access user email)
 - [ ] Backup/snapshot of KV to git (scheduled GitHub Action)
 

@@ -2,30 +2,47 @@
 
 Smartly-style replacement dashboard for Hubitat Elevation, hosted on Cloudflare Workers with config in KV.
 
+<img src="docs/dashboard-preview.svg" alt="Dashboard preview: locks, switches, garage door, presence, valve, and shade tiles with a status bar showing HSM, mode, and presence" width="700">
+
+*Mockup illustration of the main dashboard layout — not a live screenshot. Tile colors: green = active/safe, red = alert, gray = inactive.*
+
 ## What you get
 
 - Single-page dashboard accessible from anywhere (phone, iPad, desktop)
 - No servers to maintain — runs entirely on Cloudflare's free infrastructure
 - Authentication via Cloudflare Access (Zero Trust)
-- **With Cloudflare KV** (recommended): config and hub credentials stored server-side, synced across all your devices — hub token never lives in the browser
-- **Without KV** (browser-only mode): everything stored in browser localStorage — works fine on a single device, hub token stays in the browser
+- **With Cloudflare KV** (recommended): dashboard layout, tile labels, and visibility settings sync across all your devices
+- **Without KV** (browser-only mode): everything stored in browser localStorage — works fine on a single device, won't follow you to another browser
+- **Hub access token**: always stored in your browser's localStorage and sent directly from your browser to the Worker on each request — this is true whether or not you use KV. See [Where does my hub token live?](#where-does-my-hub-token-live) below
 
 ---
 
 ## KV or no KV?
 
-Cloudflare KV is optional but recommended. Here's the difference:
+Cloudflare KV is optional but recommended. It syncs your **dashboard config** — tile layout, labels, visibility, custom dashboards — across devices. It does **not** change where your hub access token lives; see [Where does my hub token live?](#where-does-my-hub-token-live) for that.
 
 | | With KV (recommended) | Browser-only (no KV) |
 |---|---|---|
-| Config syncs across devices | ✓ | ✗ (per-browser only) |
-| Hub credentials stored | Server-side in KV | Browser localStorage |
-| Hub token visible to browser | Never | Yes (stored locally) |
+| Dashboard layout/labels sync across devices | ✓ | ✗ (per-browser only) |
+| Hub access token location | Browser localStorage (same as no-KV) | Browser localStorage |
 | Requires payment method | Yes (free tier, no charge) | No |
 
-**If you just want to try it on one device**, you can skip KV entirely — configure the dashboard, skip "Save to KV", and your settings will persist in your browser. Just know the hub token will be in browser storage and won't follow you to another device or browser.
+**If you just want to try it on one device**, you can skip KV entirely — configure the dashboard, skip "Save to KV", and your settings will persist in your browser.
 
-**If you want cross-device sync and more secure credential handling**, set up KV. Cloudflare Workers are free; KV just requires a payment method on file to enable (you won't be charged for personal-scale usage — 100k reads/day, 1k writes/day, and 1GB storage are all included at no cost).
+**If you want cross-device sync of tile layout and labels**, set up KV. Cloudflare Workers are free; KV just requires a payment method on file to enable (you won't be charged for personal-scale usage — 100k reads/day, 1k writes/day, and 1GB storage are all included at no cost).
+
+---
+
+## Where does my hub token live?
+
+**Your Hubitat access token always lives in your browser's localStorage — with or without KV.** When you click "Save to Browser & Test," the token is saved locally and sent from your browser directly to the Worker as an `X-Hub-Token` header on every API request, over HTTPS. The Worker forwards it to your hub and never writes it to KV through the normal UI flow — "Save Config to KV" explicitly excludes the token, syncing only the dashboard layout (tile labels, slot mappings, visibility, custom dashboards).
+
+This means:
+- The token does **not** follow you to a different browser or device — you'll need to re-enter it there, or use [Download Config](#configuration-backup--restore) (with the "include token" option) to transfer it.
+- Clearing your browser's site data for the Worker's domain removes the token and you'll need to re-enter it.
+- The token is never visible to anyone without access to that specific browser's storage or your Worker's traffic.
+
+**Advanced / legacy option**: the Worker also supports loading hub credentials from KV server-side (`{hubId}:hub-connection`), so the token never touches any browser at all. This isn't wired into the settings UI — it's set via `wrangler kv key put` from the CLI (see [Common commands](CLAUDE.md#common-commands) in CLAUDE.md) for setups where you don't want the token in any browser's storage, e.g. a shared kiosk display. When present, the Worker only falls back to this KV-stored token if the browser doesn't send an `X-Hub-Token` header.
 
 ---
 
@@ -196,6 +213,18 @@ Click **Save to Browser & Test** — this saves your credentials to browser loca
 
 ---
 
+## Customizing tiles
+
+Tap **EDIT** to enter edit mode, then tap any tile to open its editor — pick the device, tile type, visual style, and size. Tiles with a meaningful icon (switches, locks, garages, valves, shades) get an **Icon** field with a searchable picker across 100+ built-in icons:
+
+<img src="docs/icon-picker-preview.svg" alt="Icon picker modal showing a search box filtered to 'fan' with fan, ceiling-fan, fan-speed-1, valve, and lock icon options" width="600">
+
+*Mockup illustration of the icon picker — not a live screenshot.*
+
+Binary-state tiles (switch, lock, garage, valve, shade) let you set separate icons for each state — e.g. a different icon for "locked" vs. "unlocked," or "open" vs. "closed" — so the tile still visually distinguishes state even with custom icons.
+
+---
+
 ## Lock it down with Cloudflare Access (strongly recommended)
 
 Without this, anyone who knows your Worker URL can see your dashboard. Cloudflare Access puts a login gate in front of it — only the email addresses you allow can get through.
@@ -274,12 +303,12 @@ Now the tunnel is locked down — only your browser (via human login) and the Wo
 
 ## Configuration backup & restore
 
-- **Save to KV**: pushes current settings to Cloudflare KV (cross-device sync)
-- **Download Config**: saves a JSON backup to your device
+- **Save to KV**: pushes dashboard layout/labels to Cloudflare KV (cross-device sync) — never includes the hub token, see [Where does my hub token live?](#where-does-my-hub-token-live)
+- **Download Config**: saves a JSON backup to your device (prompts whether to include the hub token — say yes if you're restoring to a new browser/device)
 - **Upload Config File**: restores from a JSON backup
 - **Copy / Paste**: quick transfer between devices via clipboard
 
-KV is the source of truth when configured. Browser localStorage is used as a short-term cache.
+KV is the source of truth for dashboard layout when configured. Browser localStorage is used as a short-term cache for layout, and as the primary store for the hub token.
 
 ---
 
