@@ -64,6 +64,8 @@ export interface SlotConfig {
   colSpan?: 0.5 | 1 | 2 | 3;
   /** How many grid rows this tile spans (default 1) */
   rowSpan?: 1 | 2;
+  /** Manual icon override (MDI icon name). Falls back to the kind's default icon when unset. */
+  icon?: string;
 }
 
 export type SlotKind =
@@ -112,6 +114,8 @@ export interface CustomTile {
   label: string;
   colSpan?: 1 | 2 | 3;
   rowSpan?: 1 | 2;
+  /** Manual icon override (MDI icon name). Falls back to the kind's default icon when unset. */
+  icon?: string;
 }
 
 /** A user-created custom dashboard */
