@@ -449,9 +449,10 @@
     font-size: 9px; color: var(--tile-label); text-align: center;
     word-break: break-word; line-height: 1.2;
   }
-  #te-icon-btn { display: flex; align-items: center; gap: 8px; }
-  #te-icon-preview { width: 20px; height: 20px; display: inline-flex; flex-shrink: 0; fill: currentColor; }
-  #te-icon-preview svg { width: 100%; height: 100%; }
+  .te-icon-btn { display: flex; align-items: center; gap: 8px; }
+  .te-icon-preview { width: 20px; height: 20px; display: inline-flex; flex-shrink: 0; fill: currentColor; }
+  .te-icon-preview svg { width: 100%; height: 100%; }
+  .te-icon-state-label { font-size: 11px; color: var(--tile-label); margin-bottom: 4px; }
 
   /* Confirm modal — compact centered */
   #confirm-modal .modal-card { max-width: 360px; text-align: center; }
@@ -831,14 +832,38 @@
     </div>
     <div class="form-row" id="te-icon-row">
       <label>Icon</label>
-      <div style="display:flex;gap:8px">
-        <button type="button" class="btn secondary" id="te-icon-btn">
-          <span id="te-icon-preview"></span>
+      <div id="te-icon-single" style="display:flex;gap:8px">
+        <button type="button" class="btn secondary te-icon-btn" id="te-icon-btn">
+          <span class="te-icon-preview" id="te-icon-preview"></span>
           <span id="te-icon-name">Default</span>
         </button>
         <button type="button" class="btn secondary" id="te-icon-clear" title="Use the default icon for this tile kind">Reset</button>
       </div>
+      <div id="te-icon-dual" style="display:none;flex-direction:column;gap:10px">
+        <div>
+          <div class="te-icon-state-label" id="te-icon-on-label">On icon</div>
+          <div style="display:flex;gap:8px">
+            <button type="button" class="btn secondary te-icon-btn" id="te-icon-on-btn">
+              <span class="te-icon-preview" id="te-icon-on-preview"></span>
+              <span id="te-icon-on-name">Default</span>
+            </button>
+            <button type="button" class="btn secondary" id="te-icon-on-clear" title="Use the default icon for this state">Reset</button>
+          </div>
+        </div>
+        <div>
+          <div class="te-icon-state-label" id="te-icon-off-label">Off icon</div>
+          <div style="display:flex;gap:8px">
+            <button type="button" class="btn secondary te-icon-btn" id="te-icon-off-btn">
+              <span class="te-icon-preview" id="te-icon-off-preview"></span>
+              <span id="te-icon-off-name">Default</span>
+            </button>
+            <button type="button" class="btn secondary" id="te-icon-off-clear" title="Use the default icon for this state">Reset</button>
+          </div>
+        </div>
+      </div>
       <input type="hidden" id="te-icon" />
+      <input type="hidden" id="te-icon-on" />
+      <input type="hidden" id="te-icon-off" />
     </div>
     <div class="form-row" id="te-confirm-row" style="display:none">
       <label>
@@ -1826,7 +1851,8 @@ function renderTile(slotId) {
       if (!s.deviceId) { el.classList.add('unmapped'); break; }
       const on = getAttr(d, 'switch') === 'on';
       if (s.style !== 'flat' && on) el.classList.add('active');
-      if (valueEl) valueEl.innerHTML = `${iconSvg(s.icon || (on ? 'toggle-switch' : 'toggle-switch-off'))}<span>${on ? 'On' : 'Off'}</span>`;
+      const swIcon = (on ? s.iconOn : s.iconOff) || s.icon || (on ? 'toggle-switch' : 'toggle-switch-off');
+      if (valueEl) valueEl.innerHTML = `${iconSvg(swIcon)}<span>${on ? 'On' : 'Off'}</span>`;
       break;
     }
     case 'bulb': {
@@ -1861,10 +1887,12 @@ function renderTile(slotId) {
       if (!s.deviceId) { el.classList.add('unmapped'); break; }
       const lk = getAttr(d, 'lock');
       const battery = getAttr(d, 'battery');
-      if (lk === 'locked') el.classList.add('active');
+      const locked = lk === 'locked';
+      if (locked) el.classList.add('active');
       else if (lk === 'unlocked') el.classList.add('alert');
       if (batteryEl && battery != null) batteryEl.textContent = `${battery}%`;
-      if (valueEl) valueEl.innerHTML = `${iconSvg(s.icon || (lk === 'locked' ? 'lock' : 'lock-open'))}<span>${lk || '—'}</span>`;
+      const lockIcon = (locked ? s.iconOn : s.iconOff) || s.icon || (locked ? 'lock' : 'lock-open');
+      if (valueEl) valueEl.innerHTML = `${iconSvg(lockIcon)}<span>${lk || '—'}</span>`;
       break;
     }
     case 'garage': {
@@ -1873,7 +1901,8 @@ function renderTile(slotId) {
       const isOpen = door === 'open' || door === 'opening';
       el.classList.remove('active', 'alert');
       el.classList.add(isOpen ? 'alert' : 'active');
-      if (valueEl) valueEl.innerHTML = `${iconSvg(s.icon || (isOpen ? 'garage-open' : 'garage'))}<span>${door || '—'}</span>`;
+      const garageIcon = (isOpen ? s.iconOn : s.iconOff) || s.icon || (isOpen ? 'garage-open' : 'garage');
+      if (valueEl) valueEl.innerHTML = `${iconSvg(garageIcon)}<span>${door || '—'}</span>`;
       break;
     }
     case 'contact': {
@@ -1893,16 +1922,19 @@ function renderTile(slotId) {
     case 'valve': {
       if (!s.deviceId) { el.classList.add('unmapped'); break; }
       const v = getAttr(d, 'valve');
-      if (v === 'open') el.classList.add('active');
-      if (valueEl) valueEl.innerHTML = `${iconSvg(s.icon || 'valve')}<span>${v || '—'}</span>`;
+      const isOpen = v === 'open';
+      if (isOpen) el.classList.add('active');
+      const valveIcon = (isOpen ? s.iconOn : s.iconOff) || s.icon || (isOpen ? 'valve' : 'valve-closed');
+      if (valueEl) valueEl.innerHTML = `${iconSvg(valveIcon)}<span>${v || '—'}</span>`;
       break;
     }
     case 'shade': {
       if (!s.deviceId) { el.classList.add('unmapped'); break; }
       const shadePos = getAttr(d, 'windowShade');
-      if (shadePos === 'open') el.classList.add('active');
       const isClosed = shadePos === 'closed';
-      if (valueEl) valueEl.innerHTML = `${iconSvg(s.icon || (isClosed ? 'window-closed' : 'window-shutter-open'))}<span>${shadePos || '—'}</span>`;
+      if (shadePos === 'open') el.classList.add('active');
+      const shadeIcon = (!isClosed ? s.iconOn : s.iconOff) || s.icon || (isClosed ? 'window-closed' : 'window-shutter-open');
+      if (valueEl) valueEl.innerHTML = `${iconSvg(shadeIcon)}<span>${shadePos || '—'}</span>`;
       break;
     }
     case 'text': {
@@ -2655,27 +2687,31 @@ function dynKindForDevice(d) {
   return 'text';
 }
 
-function dynValueForDevice(d, kind, iconOverride) {
+function dynValueForDevice(d, kind, tile = {}) {
   switch (kind) {
     case 'bulb': {
       const on = getAttr(d,'switch') === 'on';
       const level = getAttr(d,'level');
       const levelStr = on && level != null ? `${level}%` : (on ? 'On' : 'Off');
-      return `${iconSvg(iconOverride || 'lightbulb')}<span>${levelStr}</span>`;
+      return `${iconSvg(tile.icon || 'lightbulb')}<span>${levelStr}</span>`;
     }
     case 'switch': {
       const on = getAttr(d,'switch') === 'on';
-      return `${iconSvg(iconOverride || (on ? 'toggle-switch' : 'toggle-switch-off'))}<span>${on ? 'On' : 'Off'}</span>`;
+      const swIcon = (on ? tile.iconOn : tile.iconOff) || tile.icon || (on ? 'toggle-switch' : 'toggle-switch-off');
+      return `${iconSvg(swIcon)}<span>${on ? 'On' : 'Off'}</span>`;
     }
     case 'lock': {
       const lk = getAttr(d,'lock');
-      const text = lk === 'locked' ? 'Locked' : 'Unlocked';
-      return `${iconSvg(iconOverride || (lk === 'locked' ? 'lock' : 'lock-open'))}<span>${text}</span>`;
+      const locked = lk === 'locked';
+      const text = locked ? 'Locked' : 'Unlocked';
+      const lockIcon = (locked ? tile.iconOn : tile.iconOff) || tile.icon || (locked ? 'lock' : 'lock-open');
+      return `${iconSvg(lockIcon)}<span>${text}</span>`;
     }
     case 'garage': {
       const door = getAttr(d,'door') || getAttr(d,'contact') || '';
       const isOpen = door === 'open' || door === 'opening';
-      return `${iconSvg(iconOverride || (isOpen ? 'garage-open' : 'garage'))}<span>${door}</span>`;
+      const garageIcon = (isOpen ? tile.iconOn : tile.iconOff) || tile.icon || (isOpen ? 'garage-open' : 'garage');
+      return `${iconSvg(garageIcon)}<span>${door}</span>`;
     }
     case 'contact':  return getAttr(d,'contact')  || '';
     case 'presence': {
@@ -2683,13 +2719,13 @@ function dynValueForDevice(d, kind, iconOverride) {
       const isSleep = getAttr(d, 'sleeping') === 'sleeping';
       let icon, text;
       if (presenceVal === 'present' && isSleep) {
-        icon = iconSvg(iconOverride || 'sleep');
+        icon = iconSvg(tile.icon || 'sleep');
         text = 'Sleep';
       } else if (presenceVal === 'present') {
-        icon = iconSvg(iconOverride || 'home-account');
+        icon = iconSvg(tile.icon || 'home-account');
         text = 'Home';
       } else {
-        icon = iconSvg(iconOverride || 'door-open');
+        icon = iconSvg(tile.icon || 'door-open');
         text = 'Away';
       }
       return `${icon}<span>${text}</span>`;
@@ -2697,15 +2733,18 @@ function dynValueForDevice(d, kind, iconOverride) {
     case 'shade': {
       const shadePos = getAttr(d, 'windowShade');
       const isClosed = shadePos === 'closed';
-      return `${iconSvg(iconOverride || (isClosed ? 'window-closed' : 'window-shutter-open'))}<span>${shadePos || '—'}</span>`;
+      const shadeIcon = (!isClosed ? tile.iconOn : tile.iconOff) || tile.icon || (isClosed ? 'window-closed' : 'window-shutter-open');
+      return `${iconSvg(shadeIcon)}<span>${shadePos || '—'}</span>`;
     }
     case 'water': {
       const w = getAttr(d, 'water');
-      return `${iconSvg(iconOverride || 'water-percent')}<span>${w || '—'}</span>`;
+      return `${iconSvg(tile.icon || 'water-percent')}<span>${w || '—'}</span>`;
     }
     case 'valve': {
       const v = getAttr(d, 'valve');
-      return `${iconSvg(iconOverride || 'valve')}<span>${v || '—'}</span>`;
+      const isOpen = v === 'open';
+      const valveIcon = (isOpen ? tile.iconOn : tile.iconOff) || tile.icon || (isOpen ? 'valve' : 'valve-closed');
+      return `${iconSvg(valveIcon)}<span>${v || '—'}</span>`;
     }
     default: {
       const batt = getAttr(d,'battery');
@@ -2920,7 +2959,7 @@ function renderCustomDashboard(name) {
     } else if (kind === 'text' && !tile.attribute) {
       valTxt = d ? '(set attribute)' : '—';
     } else {
-      valTxt = d ? dynValueForDevice(d, kind, tile.icon) : '—';
+      valTxt = d ? dynValueForDevice(d, kind, tile) : '—';
       needsEscape = false; // dynValueForDevice returns HTML with SVG
     }
 
@@ -3157,8 +3196,12 @@ function openCustomTileEditor(dashName, slotId) {
   document.getElementById('te-image-orient').value        = tile.imageOrientation || 'landscape';
   document.getElementById('te-col-span').value            = String(tile.colSpan ?? 1);
   document.getElementById('te-row-span').value            = String(tile.rowSpan || 1);
-  document.getElementById('te-icon').value                = tile.icon || '';
-  updateIconBtnPreview(tile.icon);
+  document.getElementById('te-icon').value                = tile.icon    || '';
+  document.getElementById('te-icon-on').value              = tile.iconOn  || '';
+  document.getElementById('te-icon-off').value             = tile.iconOff || '';
+  updateIconPreview('te-icon',     tile.icon);
+  updateIconPreview('te-icon-on',  tile.iconOn);
+  updateIconPreview('te-icon-off', tile.iconOff);
   populateDeviceDropdown(tile.kind, tile.deviceId);
   syncTileEditorVisibility();
   if (tile.kind === 'text') populateAttrDropdown(tile.attribute || '');
@@ -3369,8 +3412,12 @@ function openTileEditor(slotId) {
   document.getElementById('te-image-orient').value       = s.imageOrientation || 'landscape';
   document.getElementById('te-col-span').value           = String(s.colSpan ?? 1);
   document.getElementById('te-row-span').value           = String(s.rowSpan || 1);
-  document.getElementById('te-icon').value               = s.icon || '';
-  updateIconBtnPreview(s.icon);
+  document.getElementById('te-icon').value               = s.icon    || '';
+  document.getElementById('te-icon-on').value             = s.iconOn  || '';
+  document.getElementById('te-icon-off').value            = s.iconOff || '';
+  updateIconPreview('te-icon',     s.icon);
+  updateIconPreview('te-icon-on',  s.iconOn);
+  updateIconPreview('te-icon-off', s.iconOff);
   populateDeviceDropdown(s.kind, s.deviceId);
   syncTileEditorVisibility();
   if (s.kind === 'text') populateAttrDropdown(s.attribute || '');
@@ -3436,6 +3483,16 @@ function populateAttrDropdown(initialValue = '') {
 // Kinds whose tiles render an icon (and so support a per-tile icon override)
 const ICON_ELIGIBLE_KINDS = ['switch','bulb','presence','lock','garage','water','valve','shade'];
 
+// Binary-state kinds get separate "on"/"off" icon overrides instead of one fallback icon.
+// Labels describe what each state actually means for that kind.
+const ICON_STATE_LABELS = {
+  switch: ['On icon', 'Off icon'],
+  lock:   ['Locked icon', 'Unlocked icon'],
+  garage: ['Open icon', 'Closed icon'],
+  valve:  ['Open icon', 'Closed icon'],
+  shade:  ['Open icon', 'Closed icon'],
+};
+
 function syncTileEditorVisibility() {
   const kind = document.getElementById('te-kind').value;
   const isSpacer = kind === 'spacer';
@@ -3448,23 +3505,35 @@ function syncTileEditorVisibility() {
   document.getElementById('te-valve-timer-row').style.display = kind === 'valve' ? '' : 'none';
   document.getElementById('te-orient-row').style.display   = kind === 'image'          ? '' : 'none';
   document.getElementById('te-row-span-row').style.display = kind !== 'image'          ? '' : 'none';
-  document.getElementById('te-icon-row').style.display      = ICON_ELIGIBLE_KINDS.includes(kind) ? '' : 'none';
+
+  const iconEligible = ICON_ELIGIBLE_KINDS.includes(kind);
+  const stateLabels = ICON_STATE_LABELS[kind];
+  document.getElementById('te-icon-row').style.display    = iconEligible ? '' : 'none';
+  document.getElementById('te-icon-single').style.display  = (iconEligible && !stateLabels) ? 'flex' : 'none';
+  document.getElementById('te-icon-dual').style.display     = stateLabels ? 'flex' : 'none';
+  if (stateLabels) {
+    document.getElementById('te-icon-on-label').textContent  = stateLabels[0];
+    document.getElementById('te-icon-off-label').textContent = stateLabels[1];
+  }
+
   // Spacer: hide label and style — only size matters
   document.querySelector('.form-row:has(#te-label)').style.display  = isSpacer ? 'none' : '';
   document.querySelector('.form-row:has(#te-style)').style.display  = isSpacer ? 'none' : '';
 }
 
-function updateIconBtnPreview(name) {
-  const preview = document.getElementById('te-icon-preview');
-  const nameEl  = document.getElementById('te-icon-name');
+function updateIconPreview(prefix, name) {
+  const preview = document.getElementById(`${prefix}-preview`);
+  const nameEl  = document.getElementById(`${prefix}-name`);
   if (preview) preview.innerHTML = name ? iconSvg(name) : '';
   if (nameEl)  nameEl.textContent = name || 'Default';
 }
 
 let iconPickerCallback = null;
+let iconPickerCurrentValue = '';
 
 function openIconPicker(currentValue, onSelect) {
   iconPickerCallback = onSelect;
+  iconPickerCurrentValue = currentValue;
   document.getElementById('icon-picker-search').value = '';
   renderIconPickerGrid('', currentValue);
   document.getElementById('icon-picker-modal').classList.add('open');
@@ -3472,7 +3541,7 @@ function openIconPicker(currentValue, onSelect) {
 
 function renderIconPickerGrid(filterText, selectedName) {
   const grid = document.getElementById('icon-picker-grid');
-  const q = filterText.trim().toLowerCase();
+  const q = filterText.trim().toLowerCase().replace(/-/g, ' ');
   const names = Object.keys(MDI_ICONS).sort();
   const matches = q ? names.filter(n => n.replace(/-/g, ' ').includes(q)) : names;
   grid.innerHTML = matches.map(n => `
@@ -3482,20 +3551,26 @@ function renderIconPickerGrid(filterText, selectedName) {
     </div>`).join('') || '<div style="grid-column:1/-1;color:#555;font-size:12px;padding:12px;text-align:center">No icons match</div>';
 }
 
-document.getElementById('te-icon-btn').addEventListener('click', () => {
-  openIconPicker(document.getElementById('te-icon').value, name => {
-    document.getElementById('te-icon').value = name;
-    updateIconBtnPreview(name);
+function wireIconField(prefix) {
+  document.getElementById(`${prefix}-btn`).addEventListener('click', () => {
+    const input = document.getElementById(prefix);
+    openIconPicker(input.value, name => {
+      input.value = name;
+      updateIconPreview(prefix, name);
+    });
   });
-});
+  document.getElementById(`${prefix}-clear`).addEventListener('click', () => {
+    document.getElementById(prefix).value = '';
+    updateIconPreview(prefix, '');
+  });
+}
 
-document.getElementById('te-icon-clear').addEventListener('click', () => {
-  document.getElementById('te-icon').value = '';
-  updateIconBtnPreview('');
-});
+wireIconField('te-icon');
+wireIconField('te-icon-on');
+wireIconField('te-icon-off');
 
 document.getElementById('icon-picker-search').addEventListener('input', e => {
-  renderIconPickerGrid(e.target.value, document.getElementById('te-icon').value);
+  renderIconPickerGrid(e.target.value, iconPickerCurrentValue);
 });
 
 document.getElementById('icon-picker-grid').addEventListener('click', e => {
@@ -3561,6 +3636,10 @@ document.getElementById('te-save').addEventListener('click', () => {
         if (rs > 1) tile.rowSpan = rs; else delete tile.rowSpan;
         const icon = document.getElementById('te-icon').value;
         if (icon) tile.icon = icon; else delete tile.icon;
+        const iconOn = document.getElementById('te-icon-on').value;
+        if (iconOn) tile.iconOn = iconOn; else delete tile.iconOn;
+        const iconOff = document.getElementById('te-icon-off').value;
+        if (iconOff) tile.iconOff = iconOff; else delete tile.iconOff;
       }
     }
     editingCustom = null;
@@ -3594,6 +3673,10 @@ document.getElementById('te-save').addEventListener('click', () => {
   if (!s.imageOrientation) delete s.imageOrientation;
   const icon = document.getElementById('te-icon').value;
   if (icon) s.icon = icon; else delete s.icon;
+  const iconOn = document.getElementById('te-icon-on').value;
+  if (iconOn) s.iconOn = iconOn; else delete s.iconOn;
+  const iconOff = document.getElementById('te-icon-off').value;
+  if (iconOff) s.iconOff = iconOff; else delete s.iconOff;
   delete imageLastRefreshed[editingSlot]; // force immediate re-fetch with new config
   cfg.slots[editingSlot] = s;
   saveConfigCache();

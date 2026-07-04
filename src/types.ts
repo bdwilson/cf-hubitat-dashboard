@@ -66,6 +66,10 @@ export interface SlotConfig {
   rowSpan?: 1 | 2;
   /** Manual icon override (MDI icon name). Falls back to the kind's default icon when unset. */
   icon?: string;
+  /** Icon override for the "on"/"open"/"locked" state of binary-state kinds (switch, lock, garage, valve, shade). Falls back to `icon`, then the kind's default. */
+  iconOn?: string;
+  /** Icon override for the "off"/"closed"/"unlocked" state of binary-state kinds. Falls back to `icon`, then the kind's default. */
+  iconOff?: string;
 }
 
 export type SlotKind =
@@ -116,6 +120,10 @@ export interface CustomTile {
   rowSpan?: 1 | 2;
   /** Manual icon override (MDI icon name). Falls back to the kind's default icon when unset. */
   icon?: string;
+  /** Icon override for the "on"/"open"/"locked" state of binary-state kinds (switch, lock, garage, valve, shade). Falls back to `icon`, then the kind's default. */
+  iconOn?: string;
+  /** Icon override for the "off"/"closed"/"unlocked" state of binary-state kinds. Falls back to `icon`, then the kind's default. */
+  iconOff?: string;
 }
 
 /** A user-created custom dashboard */
