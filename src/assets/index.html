@@ -3850,6 +3850,21 @@ function stopPolling() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 }
 
+// WebSocket mode only patches attribute values on devices already known at
+// connect time (see handleHubEvent) — it never adds newly-created devices to
+// the `devices` array, and connecting successfully calls stopPolling(), which
+// would otherwise have picked up new devices on its next full-list refresh.
+// A long-lived session (e.g. an iOS PWA that's never force-quit) can end up
+// stuck for hours/days without seeing devices added on the hub after connect.
+// This timer runs independently of polling/WebSocket state so new devices
+// still show up within a few minutes either way.
+const DEVICE_LIST_SYNC_MS = 5 * 60 * 1000;
+let deviceListSyncTimer = null;
+function startDeviceListSync() {
+  if (deviceListSyncTimer) return;
+  deviceListSyncTimer = setInterval(refreshAll, DEVICE_LIST_SYNC_MS);
+}
+
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 //
 // For LAN/tunnel hub URLs, the Worker proxies the hub's eventsocket so we
@@ -4509,6 +4524,9 @@ async function boot() {
     connectWebSocket();
     // Also start polling as a safety net (WebSocket close disables polling when ws is live)
     startPolling();
+    // Independent of both — catches devices added on the hub during a
+    // long-lived WebSocket session (see startDeviceListSync above)
+    startDeviceListSync();
   }
 }
 
