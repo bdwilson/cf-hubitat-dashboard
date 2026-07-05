@@ -70,6 +70,8 @@ export interface SlotConfig {
   iconOn?: string;
   /** Icon override for the "off"/"closed"/"unlocked" state of binary-state kinds. Falls back to `icon`, then the kind's default. */
   iconOff?: string;
+  /** For `text` kind: render the attribute's value as sanitized HTML instead of plain escaped text. Some drivers (e.g. Device Watchdog) emit HTML-formatted attribute values meant to be rendered, not read as literal markup. */
+  renderHtml?: boolean;
 }
 
 export type SlotKind =
@@ -126,6 +128,8 @@ export interface CustomTile {
   iconOn?: string;
   /** Icon override for the "off"/"closed"/"unlocked" state of binary-state kinds. Falls back to `icon`, then the kind's default. */
   iconOff?: string;
+  /** For `text` kind: render the attribute's value as sanitized HTML instead of plain escaped text. Some drivers (e.g. Device Watchdog) emit HTML-formatted attribute values meant to be rendered, not read as literal markup. */
+  renderHtml?: boolean;
 }
 
 /** A user-created custom dashboard */
