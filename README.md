@@ -6,6 +6,19 @@ Smartly-style replacement dashboard for Hubitat Elevation, hosted on Cloudflare 
 
 *Mockup illustration of the main dashboard layout — not a live screenshot. Tile colors: green = active/safe, red = alert, gray = inactive.*
 
+## Features
+
+- Tile types: switches, dimmers/bulbs (with a level picker), locks, garage doors, contact sensors, presence, water sensors, valves (with optional timed-open), window shades, Hubitat Mode, HSM/alarm status, Virtual Image devices, dashboard/URL links, read-only attribute text, and spacers for layout gaps
+- Mode and HSM never cycle on tap — both open a picker modal, so you can't accidentally arm/disarm or change modes with a stray tap
+- 100+ built-in icons with a searchable picker — every tile type can have its icon swapped, and binary-state tiles (switches, locks, garage, valves, shades) support separate icons for each state (e.g. a different icon for locked vs. unlocked)
+- Auto-generated dashboards — point it at your Maker API and it automatically builds grouped views (Switches, Lights, Locks, Battery, Presence, Contact Sensors, Shades) from your existing devices, no manual tile setup required
+- Custom dashboards — build your own named dashboards with any device, drag-to-resize tiles, reorder, nav chips
+- Status bar — HSM, Mode, and any presence sensors you choose to pin, visible from every view
+- Real-time updates via WebSocket — if you run Hubitat behind a Cloudflare Tunnel (instead of just the Cloud Maker API), tiles update instantly on device events instead of polling every few seconds
+- Cross-device sync (optional) — save your tile layout to Cloudflare KV and it follows you between phone, tablet, and desktop. Or skip KV entirely and keep everything in one browser
+- Cloudflare Access authentication — your dashboard gets a real login gate (email + one-time code) without exposing your hub to the internet
+- Config backup/restore — download/upload a JSON snapshot, or copy/paste between devices
+
 ## What you get
 
 - Single-page dashboard accessible from anywhere (phone, iPad, desktop)
