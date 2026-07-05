@@ -826,6 +826,11 @@
       <label>Attribute to display <span id="te-attr-hint" style="font-size:11px;color:var(--tile-label)"></span></label>
       <input id="te-attr" list="te-attr-list" placeholder="e.g. temperature, humidity…" autocomplete="off" />
       <datalist id="te-attr-list"></datalist>
+      <label style="margin-top:6px; font-size:12px">
+        <input type="checkbox" id="te-render-html" />
+        Render value as HTML
+        <span style="font-size:11px;color:var(--tile-label);margin-left:4px">(for drivers like Device Watchdog that emit HTML-formatted reports)</span>
+      </label>
     </div>
     <div class="form-row" id="te-url-row" style="display:none">
       <label>Link URL (use <code>#dynamic/switches</code>, <code>#custom/name</code>, or any URL)</label>
@@ -1368,6 +1373,27 @@ function hasCapability(device, cap) {
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c =>
     ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+// Strips event-handler attributes and javascript:/vbscript: URLs from HTML-formatted
+// attribute values (e.g. Device Watchdog's <table> report) before rendering them.
+// Uses DOMParser rather than a live-document element: parsing into a DOMParser
+// document does not run scripts or fire resource-load events (onerror/onload),
+// unlike setting innerHTML on an element that belongs to the real document.
+function sanitizeHtml(html) {
+  const doc = new DOMParser().parseFromString(String(html ?? ''), 'text/html');
+  ['script', 'style', 'iframe', 'object', 'embed', 'link', 'meta', 'form'].forEach(tag => {
+    doc.querySelectorAll(tag).forEach(el => el.remove());
+  });
+  doc.querySelectorAll('*').forEach(el => {
+    [...el.attributes].forEach(attr => {
+      const name = attr.name.toLowerCase();
+      if (name.startsWith('on')) { el.removeAttribute(attr.name); return; }
+      if (['href', 'src', 'action', 'formaction'].includes(name) && /^\s*(javascript|vbscript):/i.test(attr.value)) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+  return doc.body.innerHTML;
 }
 function isImageDevice(d) {
   return getAttr(d,'imageUrl') !== undefined ||
@@ -1963,7 +1989,11 @@ function renderTile(slotId) {
                : (d.attributes ? d.attributes[s.attribute] : undefined);
       const rawUnit = (attrEntry && attrEntry.unit) ? attrEntry.unit : '';
       const unit = rawUnit ? (rawUnit.startsWith('°') ? rawUnit : ` ${rawUnit}`) : '';
-      if (valueEl) valueEl.textContent = v != null ? `${String(v)}${unit}` : `(${s.attribute}?)`;
+      const textVal = v != null ? `${String(v)}${unit}` : `(${s.attribute}?)`;
+      if (valueEl) {
+        if (s.renderHtml && v != null) valueEl.innerHTML = sanitizeHtml(textVal);
+        else valueEl.textContent = textVal;
+      }
       break;
     }
     case 'spacer':
@@ -2972,6 +3002,7 @@ function renderCustomDashboard(name) {
       const rawUnit = (attrEntry && attrEntry.unit) ? attrEntry.unit : '';
       const unit = rawUnit ? (rawUnit.startsWith('°') ? rawUnit : ` ${rawUnit}`) : '';
       valTxt = v != null ? `${String(v)}${unit}` : `(${tile.attribute}?)`;
+      if (tile.renderHtml && v != null) { valTxt = sanitizeHtml(valTxt); needsEscape = false; }
     } else if (kind === 'text' && !tile.attribute) {
       valTxt = d ? '(set attribute)' : '—';
     } else {
@@ -3209,6 +3240,7 @@ function openCustomTileEditor(dashName, slotId) {
   document.getElementById('te-style').value               = tile.style || 'auto';
   document.getElementById('te-require-confirm').checked   = !!tile.requireConfirm;
   document.getElementById('te-valve-timer').checked       = !!tile.valveTimer;
+  document.getElementById('te-render-html').checked       = !!tile.renderHtml;
   document.getElementById('te-image-orient').value        = tile.imageOrientation || 'landscape';
   document.getElementById('te-col-span').value            = String(tile.colSpan ?? 1);
   document.getElementById('te-row-span').value            = String(tile.rowSpan || 1);
@@ -3425,6 +3457,7 @@ function openTileEditor(slotId) {
   document.getElementById('te-style').value              = s.style    || 'auto';
   document.getElementById('te-require-confirm').checked  = !!s.requireConfirm;
   document.getElementById('te-valve-timer').checked      = !!s.valveTimer;
+  document.getElementById('te-render-html').checked      = !!s.renderHtml;
   document.getElementById('te-image-orient').value       = s.imageOrientation || 'landscape';
   document.getElementById('te-col-span').value           = String(s.colSpan ?? 1);
   document.getElementById('te-row-span').value           = String(s.rowSpan || 1);
@@ -3634,8 +3667,11 @@ document.getElementById('te-save').addEventListener('click', () => {
         if (devVal) tile.deviceId = devVal;
         if (tile.kind === 'text') {
           tile.attribute = document.getElementById('te-attr').value.trim();
+          const rh = document.getElementById('te-render-html').checked;
+          if (rh) tile.renderHtml = true; else delete tile.renderHtml;
         } else {
           delete tile.attribute;
+          delete tile.renderHtml;
         }
         tile.style      = document.getElementById('te-style').value || 'auto';
         const rc = document.getElementById('te-require-confirm').checked;
@@ -3672,8 +3708,10 @@ document.getElementById('te-save').addEventListener('click', () => {
   s.deviceId         = document.getElementById('te-device').value || '';
   if (s.kind === 'text') {
     s.attribute = document.getElementById('te-attr').value.trim();
+    s.renderHtml = document.getElementById('te-render-html').checked || undefined;
   } else {
     delete s.attribute;
+    delete s.renderHtml;
   }
   s.url              = document.getElementById('te-url').value.trim() || '';
   s.urlNewTab        = document.getElementById('te-url-newtab').checked;
@@ -3848,6 +3886,21 @@ function startPolling() {
 }
 function stopPolling() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+// WebSocket mode only patches attribute values on devices already known at
+// connect time (see handleHubEvent) — it never adds newly-created devices to
+// the `devices` array, and connecting successfully calls stopPolling(), which
+// would otherwise have picked up new devices on its next full-list refresh.
+// A long-lived session (e.g. an iOS PWA that's never force-quit) can end up
+// stuck for hours/days without seeing devices added on the hub after connect.
+// This timer runs independently of polling/WebSocket state so new devices
+// still show up within a few minutes either way.
+const DEVICE_LIST_SYNC_MS = 5 * 60 * 1000;
+let deviceListSyncTimer = null;
+function startDeviceListSync() {
+  if (deviceListSyncTimer) return;
+  deviceListSyncTimer = setInterval(refreshAll, DEVICE_LIST_SYNC_MS);
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
@@ -4509,6 +4562,9 @@ async function boot() {
     connectWebSocket();
     // Also start polling as a safety net (WebSocket close disables polling when ws is live)
     startPolling();
+    // Independent of both — catches devices added on the hub during a
+    // long-lived WebSocket session (see startDeviceListSync above)
+    startDeviceListSync();
   }
 }
 
