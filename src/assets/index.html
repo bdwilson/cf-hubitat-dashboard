@@ -199,6 +199,16 @@
   .tile-label { font-size: clamp(9px, calc(var(--row-h, 80px) * 0.165), 16px); color: var(--tile-label); font-weight: 500; line-height: 1.15; }
   .tile-value { font-size: clamp(10px, calc(var(--row-h, 80px) * 0.185), 18px); font-weight: 600; color: var(--tile-text); line-height: 1; display: flex; align-items: center; justify-content: center; gap: 6px; }
   .tile-value svg { width: calc(1.2em * var(--icon-scale, 1)); height: calc(1.2em * var(--icon-scale, 1)); flex-shrink: 0; fill: currentColor; }
+  /* HTML-rendered text tiles (e.g. Device Watchdog reports) can be taller than
+     the tile — scroll internally and anchor to the top instead of letting the
+     tile's center-alignment clip both ends of an overflowing table/div. */
+  .tile-value.html-content {
+    display: block; flex: 1 1 auto; align-self: stretch;
+    /* Flex items default to min-height:auto, which sizes to content and
+       defeats overflow — must be overridden for overflow-y to take effect. */
+    min-height: 0;
+    overflow-y: auto; text-align: left; width: 100%;
+  }
   .tile-battery {
     position: absolute; top: 6px; left: 8px;
     font-size: 10px; color: var(--tile-label); font-weight: 500;
@@ -1869,7 +1879,7 @@ function renderTile(slotId) {
   const valueEl   = el.querySelector('[data-field="value"]');
   const batteryEl = el.querySelector('[data-field="battery"]');
   if (labelEl)   labelEl.textContent  = s.label || slotId;
-  if (valueEl)   valueEl.textContent  = '';
+  if (valueEl)   { valueEl.textContent = ''; valueEl.className = 'tile-value'; }
   if (batteryEl) batteryEl.textContent = '';
 
   if (s.style === 'flat') el.classList.add('flat');
@@ -1990,8 +2000,10 @@ function renderTile(slotId) {
       const rawUnit = (attrEntry && attrEntry.unit) ? attrEntry.unit : '';
       const unit = rawUnit ? (rawUnit.startsWith('°') ? rawUnit : ` ${rawUnit}`) : '';
       const textVal = v != null ? `${String(v)}${unit}` : `(${s.attribute}?)`;
+      const isHtml = !!(s.renderHtml && v != null);
       if (valueEl) {
-        if (s.renderHtml && v != null) valueEl.innerHTML = sanitizeHtml(textVal);
+        valueEl.classList.toggle('html-content', isHtml);
+        if (isHtml) valueEl.innerHTML = sanitizeHtml(textVal);
         else valueEl.textContent = textVal;
       }
       break;
@@ -2994,6 +3006,7 @@ function renderCustomDashboard(name) {
     // Text tiles use a specific attribute — dynValueForDevice doesn't know about it
     let valTxt;
     let needsEscape = true;
+    let isHtmlContent = false;
     if (kind === 'text' && tile.attribute && d) {
       const attrEntry = Array.isArray(d.attributes)
         ? d.attributes.find(a => a.name === tile.attribute) : null;
@@ -3002,7 +3015,7 @@ function renderCustomDashboard(name) {
       const rawUnit = (attrEntry && attrEntry.unit) ? attrEntry.unit : '';
       const unit = rawUnit ? (rawUnit.startsWith('°') ? rawUnit : ` ${rawUnit}`) : '';
       valTxt = v != null ? `${String(v)}${unit}` : `(${tile.attribute}?)`;
-      if (tile.renderHtml && v != null) { valTxt = sanitizeHtml(valTxt); needsEscape = false; }
+      if (tile.renderHtml && v != null) { valTxt = sanitizeHtml(valTxt); needsEscape = false; isHtmlContent = true; }
     } else if (kind === 'text' && !tile.attribute) {
       valTxt = d ? '(set attribute)' : '—';
     } else {
@@ -3019,7 +3032,7 @@ function renderCustomDashboard(name) {
       <span class="tile-edit" data-custom-edit="${tile.slotId}">⋮</span>
       ${battery != null ? `<span class="tile-battery">${battery}%</span>` : ''}
       <span class="tile-label">${escapeHtml(tile.label || (d && (d.label || d.name)) || tile.deviceId)}</span>
-      <span class="tile-value">${needsEscape ? escapeHtml(valTxt) : valTxt}</span>
+      <span class="tile-value${isHtmlContent ? ' html-content' : ''}">${needsEscape ? escapeHtml(valTxt) : valTxt}</span>
       <span class="tile-drag-handle" title="Drag to reorder">⠿</span>
       <div class="resize-handle" data-custom-resize="${tile.slotId}"></div>
     </div>`;
