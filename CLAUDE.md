@@ -216,6 +216,10 @@ npx wrangler kv key get registered-hub-id --binding=CONFIG
 - [ ] Image proxy route so remote cameras work behind CF Access (`/api/image-proxy?url=...`)
 - [ ] Per-user config isolation (key KV by CF-Access user email)
 - [ ] Backup/snapshot of KV to git (scheduled GitHub Action)
+- [ ] Custom URL link to the hub's native interface — an "exit"/external-link icon above the settings gear that opens a configurable URL (e.g. the Hubitat hub's own UI) in a new tab
+- [ ] Customizable pill color for dashboard nav chips, for both auto-generated (dynamic) dashboards and custom dashboards
+- [ ] Light/dark mode toggle icon above the settings gear, plus an auto day/night mode that changes the dashboard's look and feel based on time of day
+- [ ] All of the above (custom hub URL, pill colors, light/dark + day/night theming) should persist like other settings: stored in the browser by default, with the option to push to KV for shared/kiosk use
 
 ## Reference links
 
