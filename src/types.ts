@@ -105,6 +105,8 @@ export interface DashboardConfig {
   tileH?: number;
   /** Global icon size multiplier (0.5-2.5). Default 1. */
   iconScale?: number;
+  /** URL opened by the topbar's external-link button (e.g. the hub's own admin UI). Opens in a new tab. */
+  hubExternalUrl?: string;
 }
 
 /** Dynamic dashboard visibility — hidden[deviceId] = true means hidden */
