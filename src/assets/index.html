@@ -34,6 +34,7 @@
     --grid-cols: 3;
     --row-h: 80px;
     --icon-scale: 1;
+    --chip-accent: #2d7fbf;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
@@ -146,11 +147,11 @@
       font-size: 11px;
     }
   }
-  .nav-chip.active { background: var(--info); color: #fff; border-color: var(--info); }
-  .nav-chip.dynamic { border-color: #2a3d2a; color: #5a9a5a; }
-  .nav-chip.dynamic.active { background: #2d6f2d; color: #fff; border-color: #2d6f2d; }
-  .nav-chip.custom { border-color: #3d2a3d; color: #9a5a9a; }
-  .nav-chip.custom.active { background: #6f2d6f; color: #fff; border-color: #6f2d6f; }
+  /* All chip coloring (active fill, and the always-tinted outline for
+     auto-generated/custom dashboards) derives from one user-customizable
+     accent color instead of a fixed blue/green/purple scheme. */
+  .nav-chip.active { background: var(--chip-accent); color: #fff; border-color: var(--chip-accent); }
+  .nav-chip.dynamic, .nav-chip.custom { border-color: var(--chip-accent); color: var(--chip-accent); }
 
   /* ── Layout containers ── */
   /*
@@ -686,6 +687,10 @@
       <label>Icon size <span id="cfg-icon-scale-out" style="color:var(--tile-text)">100%</span></label>
       <input type="range" id="cfg-icon-scale" min="0.5" max="2.5" step="0.1" value="1" />
     </div>
+    <div class="form-row">
+      <label>Nav chip accent color <span style="font-size:11px;color:var(--tile-label)">(auto-generated + custom dashboard chips)</span></label>
+      <input type="color" id="cfg-chip-accent" value="#2d7fbf" style="height:36px;padding:4px;cursor:pointer" />
+    </div>
     <div class="btn-row">
       <button class="btn" id="test-conn">Save to Browser &amp; Test</button>
       <button class="btn" id="save-cfg">☁ Save Config to KV</button>
@@ -1081,6 +1086,7 @@ const defaultConfig = {
   tileH: 80,      // tile row height in px
   iconScale: 1,   // global icon size multiplier
   hubExternalUrl: '', // opened by the topbar external-link button
+  chipAccent: '#2d7fbf', // nav-chip accent color (dynamic + custom dashboards)
 };
 
 // Dynamic dashboard definitions
@@ -1306,6 +1312,7 @@ function applyServerConfig(serverCfg) {
     if (serverCfg.dashboard.tileH)     cfg.tileH     = serverCfg.dashboard.tileH;
     if (serverCfg.dashboard.iconScale) cfg.iconScale = serverCfg.dashboard.iconScale;
     if (serverCfg.dashboard.hubExternalUrl != null) cfg.hubExternalUrl = serverCfg.dashboard.hubExternalUrl;
+    if (serverCfg.dashboard.chipAccent) cfg.chipAccent = serverCfg.dashboard.chipAccent;
     applyCssVars();
   }
   if (serverCfg.hub) {
@@ -1346,6 +1353,7 @@ function applyCssVars() {
   document.documentElement.style.setProperty('--grid-cols', String(cfg.gridCols || 3));
   document.documentElement.style.setProperty('--row-h', `${cfg.tileH || 80}px`);
   document.documentElement.style.setProperty('--icon-scale', String(cfg.iconScale || 1));
+  document.documentElement.style.setProperty('--chip-accent', cfg.chipAccent || '#2d7fbf');
 }
 
 // ── Layout helpers ────────────────────────────────────────────────────────────
@@ -4098,6 +4106,7 @@ function openSettings() {
   document.getElementById('cfg-tile-h').value           = String(cfg.tileH || 80);
   document.getElementById('cfg-icon-scale').value       = String(cfg.iconScale || 1);
   document.getElementById('cfg-icon-scale-out').textContent = `${Math.round((cfg.iconScale || 1) * 100)}%`;
+  document.getElementById('cfg-chip-accent').value      = cfg.chipAccent || '#2d7fbf';
   refreshPresencePickerList();
   refreshCustomDashList();
   renderDashboardManager();
@@ -4129,6 +4138,7 @@ document.getElementById('save-cfg').addEventListener('click', async () => {
         slots: cfg.slots, layout: cfg.layout,
         gridCols: cfg.gridCols, tileH: cfg.tileH,
         iconScale: cfg.iconScale, hubExternalUrl: cfg.hubExternalUrl,
+        chipAccent: cfg.chipAccent,
       },
     };
     if (Object.keys(dynamicHidden).length || Object.keys(dynamicOrder).length || Object.keys(dynamicOverrides).length) {
@@ -4250,6 +4260,10 @@ document.getElementById('cfg-icon-scale').addEventListener('input', e => {
   document.documentElement.style.setProperty('--icon-scale', String(scale));
 });
 
+document.getElementById('cfg-chip-accent').addEventListener('input', e => {
+  document.documentElement.style.setProperty('--chip-accent', e.target.value);
+});
+
 document.getElementById('show-token-cb').addEventListener('change', async e => {
   const tf = document.getElementById('cfg-token');
   if (e.target.checked) {
@@ -4297,6 +4311,7 @@ function readSettingsForm() {
   cfg.gridCols   = parseInt(document.getElementById('cfg-grid-cols').value, 10) || 3;
   cfg.tileH      = parseInt(document.getElementById('cfg-tile-h').value, 10) || 80;
   cfg.iconScale  = parseFloat(document.getElementById('cfg-icon-scale').value) || 1;
+  cfg.chipAccent = document.getElementById('cfg-chip-accent').value || '#2d7fbf';
   applyCssVars();
 }
 function setStatus(msg, kind) {
@@ -4451,6 +4466,7 @@ document.getElementById('export-cfg').addEventListener('click', async () => {
         tileH:          cfg.tileH,
         iconScale:      cfg.iconScale,
         hubExternalUrl: cfg.hubExternalUrl,
+        chipAccent:     cfg.chipAccent,
       },
       dynamic:                  { hidden: dynamicHidden, order: dynamicOrder, overrides: dynamicOverrides },
       custom:                   customDashboards,
@@ -4528,6 +4544,7 @@ function applyImportedConfig(parsed, source) {
   if (typeof dashboard.tileH     === 'number') cfg.tileH     = dashboard.tileH;
   if (typeof dashboard.iconScale === 'number') cfg.iconScale = dashboard.iconScale;
   if (typeof dashboard.hubExternalUrl === 'string') cfg.hubExternalUrl = dashboard.hubExternalUrl;
+  if (typeof dashboard.chipAccent === 'string') cfg.chipAccent = dashboard.chipAccent;
   if (parsed.dynamic) {
     dynamicHidden    = parsed.dynamic.hidden    || {};
     dynamicOrder     = parsed.dynamic.order     || {};
@@ -4552,6 +4569,8 @@ function applyImportedConfig(parsed, source) {
     : !!cfg.hubIsCloud;
   const hubLinkField = document.getElementById('cfg-hub-link');
   if (hubLinkField) hubLinkField.value = cfg.hubExternalUrl || '';
+  const chipAccentField = document.getElementById('cfg-chip-accent');
+  if (chipAccentField) chipAccentField.value = cfg.chipAccent || '#2d7fbf';
   // Sync Hub ID display to the imported URL
   const hubIdDisplay = document.getElementById('hub-id-display');
   const hubIdRow = document.getElementById('hub-id-row');
