@@ -77,6 +77,10 @@
   .status-chip[data-action]:hover { filter: brightness(1.2); }
 
   /* ── Top bar ── */
+  /* Secondary icon buttons (hub link, theme toggle) sit in their own thin
+     row above the primary Edit/Settings row so they don't crowd it. */
+  .topbar-icons { display: flex; justify-content: flex-end; align-items: center; gap: 2px; padding: 2px 2px 0; }
+  .topbar-icons .icon-btn { font-size: 15px; padding: 2px 6px; }
   .topbar { display: flex; align-items: center; gap: 8px; padding: 4px 2px 8px; flex-wrap: wrap; }
   .topbar h1 { font-size: 20px; font-weight: 500; letter-spacing: 0.3px; }
   .home-icon {
@@ -562,6 +566,11 @@
 <!-- Always-visible HSM + presence status bar -->
 <div id="status-bar"></div>
 
+<!-- Secondary icon buttons — kept out of the primary Edit/Settings row -->
+<div class="topbar-icons">
+  <button class="icon-btn" id="open-hub-link" title="Open hub">🔗</button>
+</div>
+
 <!-- Top bar -->
 <div class="topbar">
   <span class="home-icon"></span>
@@ -571,7 +580,6 @@
   <span class="ws-dot" id="ws-dot" title="WebSocket"></span>
   <span class="conn-dot" id="conn-dot"></span>
   <button class="edit-mode-toggle" id="edit-mode-btn">Edit</button>
-  <button class="icon-btn" id="open-hub-link" title="Open hub">↗</button>
   <button class="icon-btn" id="open-settings" title="Settings">⚙</button>
 </div>
 
@@ -637,7 +645,7 @@
       <label><input type="checkbox" id="cfg-is-cloud" /> This is a Hubitat Cloud URL (auto-detected from URL)</label>
     </div>
     <div class="form-row">
-      <label>Hub direct link <span style="font-size:11px;color:var(--tile-label)">(opens in a new tab from the ↗ button — e.g. your hub's LAN admin UI)</span></label>
+      <label>Hub direct link <span style="font-size:11px;color:var(--tile-label)">(opens in a new tab from the 🔗 button above Edit/Settings — e.g. your hub's LAN admin UI)</span></label>
       <input id="cfg-hub-link" placeholder="https://192.168.1.x or https://cloud.hubitat.com" />
     </div>
     <div class="form-row">
