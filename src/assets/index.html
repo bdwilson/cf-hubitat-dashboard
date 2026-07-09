@@ -2579,13 +2579,16 @@ document.getElementById('edit-mode-btn').addEventListener('click', e => {
 });
 
 document.getElementById('theme-toggle').addEventListener('click', () => {
-  const order = ['auto', 'light', 'dark'];
-  const next = order[(order.indexOf(cfg.theme || 'auto') + 1) % order.length];
-  cfg.theme = next;
+  // Always flips to the opposite of what's currently on screen, so every
+  // click is visible — cycling through 'auto' here would sometimes be a
+  // no-op click (e.g. going dark -> auto at night looks identical, so
+  // "switching back to light" silently took two clicks). 'auto' remains
+  // available as an explicit choice in Settings.
+  cfg.theme = resolveTheme() === 'light' ? 'dark' : 'light';
   applyTheme();
   saveConfigCache();
   const sel = document.getElementById('cfg-theme');
-  if (sel) sel.value = next;
+  if (sel) sel.value = cfg.theme;
 });
 
 // Hide a tile (soft-delete): sets kind='hidden' so it shows as ghost in edit mode
