@@ -48,10 +48,15 @@
   body { padding: var(--gap); min-height: 100vh; }
 
   /* ── Status bar ── */
+  /* HSM/mode/presence chips on the left, secondary icon buttons (theme
+     toggle, hub link) on the right of the same row. */
+  .status-row {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 8px; padding: 4px 2px 8px; flex-wrap: wrap;
+  }
   #status-bar {
     display: flex; align-items: center; flex-wrap: wrap;
-    gap: 6px; padding: 4px 2px 8px;
-    min-height: 32px;
+    gap: 6px; min-height: 32px; flex: 1 1 auto;
   }
   .status-chip {
     display: inline-flex; align-items: center; gap: 5px;
@@ -77,6 +82,10 @@
   .status-chip[data-action]:hover { filter: brightness(1.2); }
 
   /* ── Top bar ── */
+  /* Secondary icon buttons (hub link, theme toggle) ride along the right
+     side of .status-row instead of crowding the Edit/Settings row. */
+  .topbar-icons { display: flex; align-items: center; gap: 2px; flex-shrink: 0; padding-top: 4px; }
+  .topbar-icons .icon-btn { font-size: 15px; padding: 2px 6px; }
   .topbar { display: flex; align-items: center; gap: 8px; padding: 4px 2px 8px; flex-wrap: wrap; }
   .topbar h1 { font-size: 20px; font-weight: 500; letter-spacing: 0.3px; }
   .home-icon {
@@ -559,8 +568,14 @@
 </head>
 <body>
 
-<!-- Always-visible HSM + presence status bar -->
-<div id="status-bar"></div>
+<!-- Always-visible HSM + presence status bar, with secondary icon buttons
+     (hub link, theme toggle) on the right of the same row -->
+<div class="status-row">
+  <div id="status-bar"></div>
+  <div class="topbar-icons">
+    <button class="icon-btn" id="open-hub-link" title="Open hub">🔗</button>
+  </div>
+</div>
 
 <!-- Top bar -->
 <div class="topbar">
@@ -634,6 +649,10 @@
     </div>
     <div class="form-row">
       <label><input type="checkbox" id="cfg-is-cloud" /> This is a Hubitat Cloud URL (auto-detected from URL)</label>
+    </div>
+    <div class="form-row">
+      <label>Hub direct link <span style="font-size:11px;color:var(--tile-label)">(opens in a new tab from the 🔗 button above Edit/Settings — e.g. your hub's LAN admin UI)</span></label>
+      <input id="cfg-hub-link" placeholder="https://192.168.1.x or https://cloud.hubitat.com" />
     </div>
     <div class="form-row">
       <label>Poll interval (seconds) — used as fallback when WebSocket is unavailable</label>
@@ -1061,6 +1080,7 @@ const defaultConfig = {
   gridCols: 3,    // grid columns per section
   tileH: 80,      // tile row height in px
   iconScale: 1,   // global icon size multiplier
+  hubExternalUrl: '', // opened by the topbar external-link button
 };
 
 // Dynamic dashboard definitions
@@ -1285,6 +1305,7 @@ function applyServerConfig(serverCfg) {
     if (serverCfg.dashboard.gridCols)  cfg.gridCols  = serverCfg.dashboard.gridCols;
     if (serverCfg.dashboard.tileH)     cfg.tileH     = serverCfg.dashboard.tileH;
     if (serverCfg.dashboard.iconScale) cfg.iconScale = serverCfg.dashboard.iconScale;
+    if (serverCfg.dashboard.hubExternalUrl != null) cfg.hubExternalUrl = serverCfg.dashboard.hubExternalUrl;
     applyCssVars();
   }
   if (serverCfg.hub) {
@@ -4070,6 +4091,7 @@ function openSettings() {
   document.getElementById('cfg-is-cloud').checked = cfg.hubBaseUrl
     ? cfg.hubBaseUrl.includes('cloud.hubitat.com')
     : !!cfg.hubIsCloud;
+  document.getElementById('cfg-hub-link').value          = cfg.hubExternalUrl || '';
   document.getElementById('cfg-poll').value             = cfg.pollSec;
   document.getElementById('cfg-title').value            = cfg.title || 'Home';
   document.getElementById('cfg-grid-cols').value        = String(cfg.gridCols || 3);
@@ -4085,6 +4107,10 @@ function openSettings() {
 function closeSettings() { settingsModal.classList.remove('open'); }
 
 document.getElementById('open-settings').addEventListener('click', openSettings);
+document.getElementById('open-hub-link').addEventListener('click', () => {
+  if (cfg.hubExternalUrl) window.open(cfg.hubExternalUrl, '_blank', 'noopener,noreferrer');
+  else openSettings();
+});
 document.getElementById('close-settings').addEventListener('click', async () => {
   readSettingsForm(); saveConfigCache();
   closeSettings();
@@ -4102,7 +4128,7 @@ document.getElementById('save-cfg').addEventListener('click', async () => {
         title: cfg.title, pollSec: cfg.pollSec,
         slots: cfg.slots, layout: cfg.layout,
         gridCols: cfg.gridCols, tileH: cfg.tileH,
-        iconScale: cfg.iconScale,
+        iconScale: cfg.iconScale, hubExternalUrl: cfg.hubExternalUrl,
       },
     };
     if (Object.keys(dynamicHidden).length || Object.keys(dynamicOrder).length || Object.keys(dynamicOverrides).length) {
@@ -4260,6 +4286,12 @@ function readSettingsForm() {
   const tok      = document.getElementById('cfg-token').value.trim();
   if (tok) { cfg.hubToken = tok; cfg.hubHasToken = true; }
   cfg.hubIsCloud = document.getElementById('cfg-is-cloud').checked;
+  let hubLink    = document.getElementById('cfg-hub-link').value.trim();
+  if (hubLink && !hubLink.startsWith('http://') && !hubLink.startsWith('https://')) {
+    hubLink = 'https://' + hubLink;
+    document.getElementById('cfg-hub-link').value = hubLink;
+  }
+  cfg.hubExternalUrl = hubLink;
   cfg.pollSec    = parseInt(document.getElementById('cfg-poll').value, 10) || 5;
   cfg.title      = document.getElementById('cfg-title').value.trim() || 'Home';
   cfg.gridCols   = parseInt(document.getElementById('cfg-grid-cols').value, 10) || 3;
@@ -4411,13 +4443,14 @@ document.getElementById('export-cfg').addEventListener('click', async () => {
         ...(inc && cfg.hubToken ? { token: cfg.hubToken } : { hasToken: cfg.hubHasToken }),
       },
       dashboard: {
-        title:     cfg.title,
-        pollSec:   cfg.pollSec,
-        slots:     cfg.slots,
-        layout:    cfg.layout,
-        gridCols:  cfg.gridCols,
-        tileH:     cfg.tileH,
-        iconScale: cfg.iconScale,
+        title:          cfg.title,
+        pollSec:        cfg.pollSec,
+        slots:          cfg.slots,
+        layout:         cfg.layout,
+        gridCols:       cfg.gridCols,
+        tileH:          cfg.tileH,
+        iconScale:      cfg.iconScale,
+        hubExternalUrl: cfg.hubExternalUrl,
       },
       dynamic:                  { hidden: dynamicHidden, order: dynamicOrder, overrides: dynamicOverrides },
       custom:                   customDashboards,
@@ -4494,6 +4527,7 @@ function applyImportedConfig(parsed, source) {
   if (typeof dashboard.gridCols  === 'number') cfg.gridCols  = dashboard.gridCols;
   if (typeof dashboard.tileH     === 'number') cfg.tileH     = dashboard.tileH;
   if (typeof dashboard.iconScale === 'number') cfg.iconScale = dashboard.iconScale;
+  if (typeof dashboard.hubExternalUrl === 'string') cfg.hubExternalUrl = dashboard.hubExternalUrl;
   if (parsed.dynamic) {
     dynamicHidden    = parsed.dynamic.hidden    || {};
     dynamicOrder     = parsed.dynamic.order     || {};
@@ -4516,6 +4550,8 @@ function applyImportedConfig(parsed, source) {
   if (cloudCb) cloudCb.checked = cfg.hubBaseUrl
     ? cfg.hubBaseUrl.includes('cloud.hubitat.com')
     : !!cfg.hubIsCloud;
+  const hubLinkField = document.getElementById('cfg-hub-link');
+  if (hubLinkField) hubLinkField.value = cfg.hubExternalUrl || '';
   // Sync Hub ID display to the imported URL
   const hubIdDisplay = document.getElementById('hub-id-display');
   const hubIdRow = document.getElementById('hub-id-row');
