@@ -107,8 +107,10 @@ export interface DashboardConfig {
   iconScale?: number;
   /** URL opened by the topbar's external-link button (e.g. the hub's own admin UI). Opens in a new tab. */
   hubExternalUrl?: string;
-  /** Accent color (hex) for auto-generated and custom dashboard nav chips. Default #2d7fbf. */
+  /** Accent color (hex) for the Main chip and custom dashboard nav chips. Default #2d7fbf. */
   chipAccent?: string;
+  /** Accent color (hex) for auto-generated (dynamic) dashboard nav chips. Default #2d7fbf. */
+  chipAccentDynamic?: string;
   /** Color theme. 'auto' switches between light/dark based on local time of day. Default 'auto'. */
   theme?: 'auto' | 'light' | 'dark';
 }

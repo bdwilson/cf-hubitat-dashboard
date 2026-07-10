@@ -49,6 +49,7 @@
     --row-h: 80px;
     --icon-scale: 1;
     --chip-accent: #2d7fbf;
+    --chip-accent-dynamic: #2d7fbf;
   }
   /* Light theme — applied via [data-theme="light"] on <html>, set by
      applyTheme() (manual choice or auto day/night). Overrides only the
@@ -188,11 +189,15 @@
       font-size: 11px;
     }
   }
-  /* All chip coloring (active fill, and the always-tinted outline for
-     auto-generated/custom dashboards) derives from one user-customizable
-     accent color instead of a fixed blue/green/purple scheme. */
+  /* Two independent user-customizable accent colors: --chip-accent covers
+     the default/Main chip and custom dashboards, --chip-accent-dynamic
+     covers auto-generated (dynamic) dashboards. The .dynamic.active rule
+     has higher specificity than .active alone, so it wins for auto-
+     generated chips while everything else still uses --chip-accent. */
   .nav-chip.active { background: var(--chip-accent); color: #fff; border-color: var(--chip-accent); }
-  .nav-chip.dynamic, .nav-chip.custom { border-color: var(--chip-accent); color: var(--chip-accent); }
+  .nav-chip.custom { border-color: var(--chip-accent); color: var(--chip-accent); }
+  .nav-chip.dynamic { border-color: var(--chip-accent-dynamic); color: var(--chip-accent-dynamic); }
+  .nav-chip.dynamic.active { background: var(--chip-accent-dynamic); border-color: var(--chip-accent-dynamic); }
 
   /* ── Layout containers ── */
   /*
@@ -615,7 +620,7 @@
 <div class="status-row">
   <div id="status-bar"></div>
   <div class="topbar-icons">
-    <button class="icon-btn" id="open-hub-link" title="Open hub">🔗</button>
+    <button class="icon-btn" id="open-hub-link" title="Open hub">⎋</button>
     <button class="icon-btn" id="theme-toggle" title="Theme">◐</button>
   </div>
 </div>
@@ -694,7 +699,7 @@
       <label><input type="checkbox" id="cfg-is-cloud" /> This is a Hubitat Cloud URL (auto-detected from URL)</label>
     </div>
     <div class="form-row">
-      <label>Hub direct link <span style="font-size:11px;color:var(--tile-label)">(opens in a new tab from the 🔗 button above Edit/Settings — e.g. your hub's LAN admin UI)</span></label>
+      <label>Hub direct link <span style="font-size:11px;color:var(--tile-label)">(opens in a new tab from the ⎋ button above Edit/Settings — e.g. your hub's LAN admin UI)</span></label>
       <input id="cfg-hub-link" placeholder="https://192.168.1.x or https://cloud.hubitat.com" />
     </div>
     <div class="form-row">
@@ -730,8 +735,12 @@
       <input type="range" id="cfg-icon-scale" min="0.5" max="2.5" step="0.1" value="1" />
     </div>
     <div class="form-row">
-      <label>Nav chip accent color <span style="font-size:11px;color:var(--tile-label)">(auto-generated + custom dashboard chips)</span></label>
+      <label>Nav chip accent color <span style="font-size:11px;color:var(--tile-label)">(Main + custom dashboard chips)</span></label>
       <input type="color" id="cfg-chip-accent" value="#2d7fbf" style="height:36px;padding:4px;cursor:pointer" />
+    </div>
+    <div class="form-row">
+      <label>Auto-generated chip accent color <span style="font-size:11px;color:var(--tile-label)">(Switches, Lights, Locks, etc.)</span></label>
+      <input type="color" id="cfg-chip-accent-dynamic" value="#2d7fbf" style="height:36px;padding:4px;cursor:pointer" />
     </div>
     <div class="form-row">
       <label>Theme <span style="font-size:11px;color:var(--tile-label)">(also toggled from the ◐ topbar button)</span></label>
@@ -1136,7 +1145,8 @@ const defaultConfig = {
   tileH: 80,      // tile row height in px
   iconScale: 1,   // global icon size multiplier
   hubExternalUrl: '', // opened by the topbar external-link button
-  chipAccent: '#2d7fbf', // nav-chip accent color (dynamic + custom dashboards)
+  chipAccent: '#2d7fbf', // nav-chip accent color (Main + custom dashboards)
+  chipAccentDynamic: '#2d7fbf', // nav-chip accent color (auto-generated dashboards)
   theme: 'auto',  // 'auto' | 'light' | 'dark' — auto follows local time of day
 };
 
@@ -1364,6 +1374,7 @@ function applyServerConfig(serverCfg) {
     if (serverCfg.dashboard.iconScale) cfg.iconScale = serverCfg.dashboard.iconScale;
     if (serverCfg.dashboard.hubExternalUrl != null) cfg.hubExternalUrl = serverCfg.dashboard.hubExternalUrl;
     if (serverCfg.dashboard.chipAccent) cfg.chipAccent = serverCfg.dashboard.chipAccent;
+    if (serverCfg.dashboard.chipAccentDynamic) cfg.chipAccentDynamic = serverCfg.dashboard.chipAccentDynamic;
     if (serverCfg.dashboard.theme)     cfg.theme     = serverCfg.dashboard.theme;
     applyCssVars();
   }
@@ -1406,6 +1417,7 @@ function applyCssVars() {
   document.documentElement.style.setProperty('--row-h', `${cfg.tileH || 80}px`);
   document.documentElement.style.setProperty('--icon-scale', String(cfg.iconScale || 1));
   document.documentElement.style.setProperty('--chip-accent', cfg.chipAccent || '#2d7fbf');
+  document.documentElement.style.setProperty('--chip-accent-dynamic', cfg.chipAccentDynamic || '#2d7fbf');
   applyTheme();
 }
 
@@ -4199,6 +4211,7 @@ function openSettings() {
   document.getElementById('cfg-icon-scale').value       = String(cfg.iconScale || 1);
   document.getElementById('cfg-icon-scale-out').textContent = `${Math.round((cfg.iconScale || 1) * 100)}%`;
   document.getElementById('cfg-chip-accent').value      = cfg.chipAccent || '#2d7fbf';
+  document.getElementById('cfg-chip-accent-dynamic').value = cfg.chipAccentDynamic || '#2d7fbf';
   document.getElementById('cfg-theme').value            = cfg.theme || 'auto';
   refreshPresencePickerList();
   refreshCustomDashList();
@@ -4231,7 +4244,8 @@ document.getElementById('save-cfg').addEventListener('click', async () => {
         slots: cfg.slots, layout: cfg.layout,
         gridCols: cfg.gridCols, tileH: cfg.tileH,
         iconScale: cfg.iconScale, hubExternalUrl: cfg.hubExternalUrl,
-        chipAccent: cfg.chipAccent, theme: cfg.theme,
+        chipAccent: cfg.chipAccent, chipAccentDynamic: cfg.chipAccentDynamic,
+        theme: cfg.theme,
       },
     };
     if (Object.keys(dynamicHidden).length || Object.keys(dynamicOrder).length || Object.keys(dynamicOverrides).length) {
@@ -4357,6 +4371,10 @@ document.getElementById('cfg-chip-accent').addEventListener('input', e => {
   document.documentElement.style.setProperty('--chip-accent', e.target.value);
 });
 
+document.getElementById('cfg-chip-accent-dynamic').addEventListener('input', e => {
+  document.documentElement.style.setProperty('--chip-accent-dynamic', e.target.value);
+});
+
 document.getElementById('cfg-theme').addEventListener('change', e => {
   cfg.theme = e.target.value;
   applyTheme();
@@ -4410,6 +4428,7 @@ function readSettingsForm() {
   cfg.tileH      = parseInt(document.getElementById('cfg-tile-h').value, 10) || 80;
   cfg.iconScale  = parseFloat(document.getElementById('cfg-icon-scale').value) || 1;
   cfg.chipAccent = document.getElementById('cfg-chip-accent').value || '#2d7fbf';
+  cfg.chipAccentDynamic = document.getElementById('cfg-chip-accent-dynamic').value || '#2d7fbf';
   cfg.theme      = document.getElementById('cfg-theme').value || 'auto';
   applyCssVars();
 }
@@ -4566,6 +4585,7 @@ document.getElementById('export-cfg').addEventListener('click', async () => {
         iconScale:      cfg.iconScale,
         hubExternalUrl: cfg.hubExternalUrl,
         chipAccent:     cfg.chipAccent,
+        chipAccentDynamic: cfg.chipAccentDynamic,
         theme:          cfg.theme,
       },
       dynamic:                  { hidden: dynamicHidden, order: dynamicOrder, overrides: dynamicOverrides },
@@ -4645,6 +4665,7 @@ function applyImportedConfig(parsed, source) {
   if (typeof dashboard.iconScale === 'number') cfg.iconScale = dashboard.iconScale;
   if (typeof dashboard.hubExternalUrl === 'string') cfg.hubExternalUrl = dashboard.hubExternalUrl;
   if (typeof dashboard.chipAccent === 'string') cfg.chipAccent = dashboard.chipAccent;
+  if (typeof dashboard.chipAccentDynamic === 'string') cfg.chipAccentDynamic = dashboard.chipAccentDynamic;
   if (typeof dashboard.theme === 'string') cfg.theme = dashboard.theme;
   if (parsed.dynamic) {
     dynamicHidden    = parsed.dynamic.hidden    || {};
@@ -4672,6 +4693,8 @@ function applyImportedConfig(parsed, source) {
   if (hubLinkField) hubLinkField.value = cfg.hubExternalUrl || '';
   const chipAccentField = document.getElementById('cfg-chip-accent');
   if (chipAccentField) chipAccentField.value = cfg.chipAccent || '#2d7fbf';
+  const chipAccentDynamicField = document.getElementById('cfg-chip-accent-dynamic');
+  if (chipAccentDynamicField) chipAccentDynamicField.value = cfg.chipAccentDynamic || '#2d7fbf';
   const themeSel = document.getElementById('cfg-theme');
   if (themeSel) themeSel.value = cfg.theme || 'auto';
   // Sync Hub ID display to the imported URL
