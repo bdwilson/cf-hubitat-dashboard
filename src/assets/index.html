@@ -2185,6 +2185,10 @@ function renderAll(force) {
   } else if (currentView.startsWith('custom/')) {
     renderCustomDashboard(currentView.replace('custom/', ''), force);
   }
+  // The lightbox lives outside the normal tile-render flow (see
+  // refreshLightboxImage's comment) — only worth touching on an explicit
+  // forced refresh, not every background poll tick.
+  if (force) refreshLightboxImage();
 }
 
 /**
@@ -2304,7 +2308,7 @@ async function onTileClick(e) {
       case 'image': {
         // Tap → open lightbox with full-size image
         const imgUrl = d ? getImageUrl(d) : s.url || '';
-        if (imgUrl) openLightbox(imgUrl, s.label || '');
+        if (imgUrl) openLightbox(imgUrl, s.label || '', s.deviceId || null);
         return;
       }
       case 'valve': {
@@ -2380,14 +2384,37 @@ document.getElementById('confirm-no').addEventListener('click', () => {
 
 // ── Lightbox ──────────────────────────────────────────────────────────────────
 
-function openLightbox(url, label) {
+// Tracks which device (if any) is behind the currently-open lightbox, so a
+// pull-to-refresh can re-fetch a fresh frame into it. The lightbox's <img>
+// is otherwise a one-time snapshot set at open time — unlike the grid tile
+// it was opened from, nothing else in the app ever touches it again.
+let lightboxDeviceId = null;
+
+function bustImageUrl(url) {
+  return url + (url.includes('?') ? '&' : '?') + '_t=' + Date.now();
+}
+
+function openLightbox(url, label, deviceId) {
   const modal = document.getElementById('lightbox-modal');
   const img   = document.getElementById('lightbox-img');
   const lbl   = document.getElementById('lightbox-label');
   if (!modal || !img) return;
+  lightboxDeviceId = deviceId || null;
   img.src = url;
   if (lbl) lbl.textContent = label || '';
   modal.classList.add('open');
+}
+
+// Called on a forced refresh (pull-to-refresh) — re-derives the freshest
+// known URL for the open lightbox's device and cache-busts it, since the
+// lightbox has no polling/render cycle of its own.
+function refreshLightboxImage() {
+  const modal = document.getElementById('lightbox-modal');
+  if (!modal || !modal.classList.contains('open') || !lightboxDeviceId) return;
+  const d = findDevice(lightboxDeviceId);
+  const url = d ? getImageUrl(d) : '';
+  if (!url) return;
+  document.getElementById('lightbox-img').src = bustImageUrl(url);
 }
 
 document.getElementById('lightbox-modal').addEventListener('click', e => {
@@ -3256,7 +3283,7 @@ async function onCustomTileClick(e, dashName, slotId) {
   try {
     if (kind === 'image') {
       const imgUrl = d ? getImageUrl(d) : (tile.url || '');
-      if (imgUrl) openLightbox(imgUrl, tile.label || (d && (d.label || d.name)) || '');
+      if (imgUrl) openLightbox(imgUrl, tile.label || (d && (d.label || d.name)) || '', tile.deviceId || null);
       return;
     } else if (kind === 'bulb') {
       showBulbLevelPicker(tile.deviceId, tile.label || (d && (d.label || d.name)) || tile.deviceId);
