@@ -107,6 +107,8 @@ export interface DashboardConfig {
   iconScale?: number;
   /** URL opened by the topbar's external-link button (e.g. the hub's own admin UI). Opens in a new tab. */
   hubExternalUrl?: string;
+  /** Accent color (hex) for auto-generated and custom dashboard nav chips. Default #2d7fbf. */
+  chipAccent?: string;
 }
 
 /** Dynamic dashboard visibility — hidden[deviceId] = true means hidden */
