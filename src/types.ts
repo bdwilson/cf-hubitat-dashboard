@@ -109,6 +109,8 @@ export interface DashboardConfig {
   hubExternalUrl?: string;
   /** Accent color (hex) for auto-generated and custom dashboard nav chips. Default #2d7fbf. */
   chipAccent?: string;
+  /** Color theme. 'auto' switches between light/dark based on local time of day. Default 'auto'. */
+  theme?: 'auto' | 'light' | 'dark';
 }
 
 /** Dynamic dashboard visibility — hidden[deviceId] = true means hidden */
