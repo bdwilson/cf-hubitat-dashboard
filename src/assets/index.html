@@ -615,9 +615,27 @@
        Tap an image tile to enlarge it in the lightbox. */
     .split { grid-template-columns: 3fr 2fr; }
   }
+
+  /* ── Pull-to-refresh (standalone/PWA only — see initPullToRefresh) ── */
+  #pull-refresh {
+    position: fixed; top: 0; left: 50%;
+    transform: translate(-50%, -60px);
+    width: 34px; height: 34px; border-radius: 50%;
+    background: var(--tile-bg); border: 1px solid var(--tile-border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; color: var(--tile-label);
+    z-index: 250; pointer-events: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  }
+  #pull-refresh.ready { color: var(--active); }
+  #pull-refresh.spinning { animation: pull-refresh-spin 0.7s linear infinite; }
+  @keyframes pull-refresh-spin { to { transform: translate(-50%, 20px) rotate(360deg); } }
 </style>
 </head>
 <body>
+
+<!-- Pull-to-refresh indicator — see initPullToRefresh() -->
+<div id="pull-refresh">↻</div>
 
 <!-- Always-visible HSM + presence status bar, with secondary icon buttons
      (hub link, theme toggle) on the right of the same row -->
@@ -4769,6 +4787,66 @@ async function boot() {
   setInterval(applyTheme, 5 * 60 * 1000);
 }
 
+// ── Pull-to-refresh ───────────────────────────────────────────────────────────
+// iOS Safari doesn't have a native pull-to-refresh gesture in standalone/PWA
+// mode (unlike Android Chrome), so this implements one by hand. Only enabled
+// in standalone mode — a regular browser tab already has its own reload
+// affordances (URL bar, keyboard shortcut) so this isn't needed there.
+function initPullToRefresh() {
+  const isStandalone = window.navigator.standalone === true
+    || window.matchMedia('(display-mode: standalone)').matches;
+  if (!isStandalone) return;
+
+  const PULL_THRESHOLD = 70; // px of (resistance-adjusted) pull before release triggers a refresh
+  const MAX_PULL = 90;
+  const RESISTANCE = 0.5;
+  const indicator = document.getElementById('pull-refresh');
+  let startY = 0;
+  let pulling = false;
+  let refreshing = false;
+  let currentPull = 0;
+
+  function setPull(px) {
+    currentPull = px;
+    indicator.style.transform = `translate(-50%, ${px - 60}px)`;
+    indicator.classList.toggle('ready', px >= PULL_THRESHOLD);
+  }
+
+  document.addEventListener('touchstart', e => {
+    // Ignore multi-touch, and only start tracking when already at the top —
+    // otherwise this would hijack ordinary scrolling anywhere on the page.
+    if (refreshing || e.touches.length !== 1 || window.scrollY > 0) return;
+    // A modal (settings, tile editor, pickers, lightbox, etc.) has its own
+    // independent scroll region layered over the page — don't interfere.
+    if (document.querySelector('.modal.open')) return;
+    startY = e.touches[0].clientY;
+    pulling = true;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', e => {
+    if (!pulling || refreshing) return;
+    if (window.scrollY > 0) { pulling = false; setPull(0); return; }
+    const deltaY = e.touches[0].clientY - startY;
+    if (deltaY <= 0) { setPull(0); return; }
+    e.preventDefault();
+    setPull(Math.min(deltaY * RESISTANCE, MAX_PULL));
+  }, { passive: false });
+
+  document.addEventListener('touchend', async () => {
+    if (!pulling || refreshing) return;
+    pulling = false;
+    if (currentPull < PULL_THRESHOLD) { setPull(0); return; }
+    refreshing = true;
+    indicator.classList.add('spinning');
+    indicator.style.transform = 'translate(-50%, 20px)';
+    try { await refreshAll(); } catch {}
+    indicator.classList.remove('spinning', 'ready');
+    setPull(0);
+    refreshing = false;
+  });
+}
+
+initPullToRefresh();
 boot();
 })();
 </script>
