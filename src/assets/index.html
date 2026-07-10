@@ -629,6 +629,12 @@
   }
   #pull-refresh.ready { color: var(--active); }
   #pull-refresh.spinning { animation: pull-refresh-spin 0.7s linear infinite; }
+  /* Brief positive confirmation after refreshAll() resolves — the spinner
+     alone only communicates "in progress," not "done," and most polls
+     don't visibly change anything on screen (nothing to compare against),
+     so without this a completed refresh looked indistinguishable from a
+     stuck one. */
+  #pull-refresh.done { color: var(--active); border-color: var(--active); transform: translate(-50%, 20px); }
   @keyframes pull-refresh-spin { to { transform: translate(-50%, 20px) rotate(360deg); } }
 </style>
 </head>
@@ -1931,7 +1937,7 @@ function slotHtml(slotId, sectionId) {
 
 // ── Tile rendering ────────────────────────────────────────────────────────────
 
-function renderTile(slotId) {
+function renderTile(slotId, force) {
   const el = document.querySelector(`[data-slot="${slotId}"]`);
   if (!el) return;
   const s = cfg.slots[slotId] || {};
@@ -1976,7 +1982,7 @@ function renderTile(slotId) {
       const existingImg = el.querySelector('img');
       const now = Date.now();
       const last = imageLastRefreshed[slotId] || 0;
-      const due = !existingImg || refreshMs === 0 || (now - last >= refreshMs);
+      const due = force || !existingImg || refreshMs === 0 || (now - last >= refreshMs);
 
       if (due) {
         imageLastRefreshed[slotId] = now;
@@ -2159,16 +2165,18 @@ function renderTile(slotId) {
   }
 }
 
-function renderAll() {
+function renderAll(force) {
   document.getElementById('dash-title').textContent = cfg.title || 'Home';
-  Object.keys(cfg.slots).forEach(renderTile);
+  // NOT .forEach(renderTile) — forEach passes (value, index, array), and
+  // that index would otherwise be misread as the `force` argument.
+  Object.keys(cfg.slots).forEach(slotId => renderTile(slotId, force));
   updateStatusBar();
   updateSectionVisibility();
 
   if (currentView.startsWith('dynamic/')) {
     renderDynamicDashboard(currentView.replace('dynamic/', ''));
   } else if (currentView.startsWith('custom/')) {
-    renderCustomDashboard(currentView.replace('custom/', ''));
+    renderCustomDashboard(currentView.replace('custom/', ''), force);
   }
 }
 
@@ -3088,7 +3096,7 @@ async function saveDynamicConfig() {
 
 // ── Custom dashboards ─────────────────────────────────────────────────────────
 
-function renderCustomDashboard(name) {
+function renderCustomDashboard(name, force) {
   const dash = customDashboards[name];
   const grid  = document.getElementById('custom-grid');
   if (!grid) return;
@@ -3145,7 +3153,7 @@ function renderCustomDashboard(name) {
       const cacheKey = `custom/${name}/${tile.slotId}`;
       const now = Date.now();
       const last = imageLastRefreshed[cacheKey] || 0;
-      if ((now - last) >= refreshMs) imageLastRefreshed[cacheKey] = now;
+      if (force || (now - last) >= refreshMs) imageLastRefreshed[cacheKey] = now;
       const ts = imageLastRefreshed[cacheKey];
       const busted = imgUrl ? imgUrl + (imgUrl.includes('?') ? '&' : '?') + '_t=' + ts : '';
       return `<div class="image-tile${portrait}" data-custom-slot="${tile.slotId}" data-custom-name="${name}"${colAttr}${rowAttr}>
@@ -4039,9 +4047,9 @@ async function refreshDevices() {
   }
 }
 
-async function refreshAll() {
+async function refreshAll(force) {
   await refreshDevices();
-  renderAll();
+  renderAll(force);
 }
 
 function setConnDot(ok) {
@@ -4839,8 +4847,18 @@ function initPullToRefresh() {
     refreshing = true;
     indicator.classList.add('spinning');
     indicator.style.transform = 'translate(-50%, 20px)';
-    try { await refreshAll(); } catch {}
+    // force=true bypasses each image tile's own refreshRate throttle — a
+    // manual pull is explicit user intent for "get me the latest now",
+    // not a background poll tick that should respect rate limits.
+    try { await refreshAll(true); } catch {}
+    // Briefly show a checkmark so a completed refresh is visibly distinct
+    // from an in-progress one, even when nothing on screen actually changed.
     indicator.classList.remove('spinning', 'ready');
+    indicator.classList.add('done');
+    indicator.textContent = '✓';
+    await new Promise(r => setTimeout(r, 500));
+    indicator.classList.remove('done');
+    indicator.textContent = '↻';
     setPull(0);
     refreshing = false;
   });
