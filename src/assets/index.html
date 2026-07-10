@@ -92,14 +92,17 @@
 
   /* ── Status bar ── */
   /* HSM/mode/presence chips on the left, secondary icon buttons (theme
-     toggle, hub link) on the right of the same row. */
-  .status-row {
-    display: flex; align-items: flex-start; justify-content: space-between;
-    gap: 8px; padding: 4px 2px 8px; flex-wrap: wrap;
-  }
+     toggle, hub link) pinned to the top-right of the same row. The icon
+     cluster is absolutely positioned rather than a wrapping flex sibling:
+     when the chips wrap to 2+ lines on narrow viewports, a flex sibling
+     gets pushed below the *whole* wrapped block instead of sitting beside
+     it — absolute positioning plus reserved padding on #status-bar avoids
+     that and keeps the icons pinned in the corner no matter how many
+     chip rows there are. */
+  .status-row { position: relative; padding: 4px 2px 8px; }
   #status-bar {
     display: flex; align-items: center; flex-wrap: wrap;
-    gap: 6px; min-height: 32px; flex: 1 1 auto;
+    gap: 6px; min-height: 32px; padding-right: 64px;
   }
   .status-chip {
     display: inline-flex; align-items: center; gap: 5px;
@@ -126,8 +129,9 @@
 
   /* ── Top bar ── */
   /* Secondary icon buttons (hub link, theme toggle) ride along the right
-     side of .status-row instead of crowding the Edit/Settings row. */
-  .topbar-icons { display: flex; align-items: center; gap: 2px; flex-shrink: 0; padding-top: 4px; }
+     side of .status-row instead of crowding the Edit/Settings row. Pinned
+     via absolute positioning — see the #status-bar comment above. */
+  .topbar-icons { position: absolute; top: 4px; right: 2px; display: flex; align-items: center; gap: 2px; }
   .topbar-icons .icon-btn { font-size: 15px; padding: 2px 6px; }
   .topbar { display: flex; align-items: center; gap: 8px; padding: 4px 2px 8px; flex-wrap: wrap; }
   .topbar h1 { font-size: 20px; font-weight: 500; letter-spacing: 0.3px; }
