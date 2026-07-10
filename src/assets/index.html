@@ -201,7 +201,14 @@
   .nav-chip.active { background: var(--chip-accent); color: #fff; border-color: var(--chip-accent); }
   .nav-chip.custom { border-color: var(--chip-accent); color: var(--chip-accent); }
   .nav-chip.dynamic { border-color: var(--chip-accent-dynamic); color: var(--chip-accent-dynamic); }
-  .nav-chip.dynamic.active { background: var(--chip-accent-dynamic); border-color: var(--chip-accent-dynamic); }
+  /* .custom and .dynamic above are the same specificity (2 classes) as
+     .active, so which one wins the `color` property for an active custom/
+     dynamic chip came down to source order rather than intent — and lost,
+     leaving text the same color as its own background (invisible in both
+     themes). These 3-class rules resolve it unambiguously instead of
+     relying on rule ordering. */
+  .nav-chip.dynamic.active { background: var(--chip-accent-dynamic); border-color: var(--chip-accent-dynamic); color: #fff; }
+  .nav-chip.custom.active { color: #fff; }
 
   /* ── Layout containers ── */
   /*
