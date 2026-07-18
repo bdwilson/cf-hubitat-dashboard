@@ -3215,20 +3215,25 @@ function renderCustomDashboard(name, force) {
       if (tile.renderHtml && v != null) { valTxt = sanitizeHtml(valTxt); needsEscape = false; isHtmlContent = true; }
     } else if (kind === 'text' && !tile.attribute) {
       valTxt = d ? '(set attribute)' : '—';
+    } else if (kind === 'dashboard-link') {
+      // Link tiles have no device state — mirror the main dashboard's
+      // rendering (info-styled, no value) instead of showing "—".
+      valTxt = '';
     } else {
       valTxt = d ? dynValueForDevice(d, kind, tile) : '—';
       needsEscape = false; // dynValueForDevice returns HTML with SVG
     }
 
     const active = d ? dynIsActive(d, kind) : false;
-    const stateClass = kind === 'garage' ? (active ? 'alert' : 'active') : (active ? 'active' : '');
+    const stateClass = kind === 'dashboard-link' ? 'info'
+      : kind === 'garage' ? (active ? 'alert' : 'active') : (active ? 'active' : '');
     const cls = 'tile' + (stateClass ? ' ' + stateClass : '');
     const battery = d ? getAttr(d,'battery') : null;
     return `<div class="${cls}" data-custom-slot="${tile.slotId}" data-custom-name="${name}"${colAttr}${rowAttr}>
       <button class="tile-remove" data-custom-slot="${tile.slotId}" data-custom-name="${name}" title="Remove">×</button>
       <span class="tile-edit" data-custom-edit="${tile.slotId}">⋮</span>
       ${battery != null ? `<span class="tile-battery">${battery}%</span>` : ''}
-      <span class="tile-label">${escapeHtml(tile.label || (d && (d.label || d.name)) || tile.deviceId)}</span>
+      <span class="tile-label">${escapeHtml(tile.label || (d && (d.label || d.name)) || tile.deviceId || (kind === 'dashboard-link' ? 'Link' : ''))}</span>
       <span class="tile-value${isHtmlContent ? ' html-content' : ''}">${needsEscape ? escapeHtml(valTxt) : valTxt}</span>
       <span class="tile-drag-handle" title="Drag to reorder">⠿</span>
       <div class="resize-handle" data-custom-resize="${tile.slotId}"></div>
@@ -3284,6 +3289,21 @@ async function onCustomTileClick(e, dashName, slotId) {
     if (kind === 'image') {
       const imgUrl = d ? getImageUrl(d) : (tile.url || '');
       if (imgUrl) openLightbox(imgUrl, tile.label || (d && (d.label || d.name)) || '', tile.deviceId || null);
+      return;
+    } else if (kind === 'dashboard-link') {
+      // Same behavior as the main dashboard's dashboard-link case: "#..."
+      // navigates in-app, anything else is a URL (new tab if configured).
+      if (tile.url) {
+        if (tile.url.startsWith('#')) {
+          navigate(tile.url.replace(/^#\/?/, '') || 'main');
+        } else if (tile.urlNewTab) {
+          window.open(tile.url, '_blank');
+        } else {
+          window.location.href = tile.url;
+        }
+      } else {
+        openCustomTileEditor(dashName, slotId);
+      }
       return;
     } else if (kind === 'bulb') {
       showBulbLevelPicker(tile.deviceId, tile.label || (d && (d.label || d.name)) || tile.deviceId);
