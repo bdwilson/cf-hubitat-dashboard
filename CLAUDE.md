@@ -23,10 +23,12 @@ The dashboard is a single static HTML file (`src/assets/index.html`) served by t
                                                        │     - {hubId}:custom-dashboards     Record<string, CustomDashboard>
                                                        │     - {hubId}:dashboards-visible    Record<string, boolean>
                                                        │     - {hubId}:dashboards-order      string[]
-                                                       │     - {hubId}:status-bar-presence-devices: Record<string, unknown>
+                                                       │     - {hubId}:status-bar-presence-devices: Record<deviceId, {label, kind}>
                                                        │
                                                        └─► Hubitat hub  (via Cloud Maker API or
                                                             Cloudflare Tunnel — configurable)
+                                                            ├─ REST: /apps/api/... (polling, 5s default)
+                                                            └─ WS:   /eventsocket (LAN/tunnel only, real-time)
 ```
 
 **Why a Worker instead of hosting on the hub itself**: cross-device config sync (KV is the source of truth), public access via CF Access without exposing the hub to the internet, no localStorage drift between phone/iPad/desktop, and no CORS gymnastics.
@@ -85,6 +87,11 @@ Browser calls `/api/hub/devices/all`. Worker rewrites to `${baseUrl}/apps/api/${
 
 For Hubitat Cloud Maker API the base URL is `https://cloud.hubitat.com/api/{hub-uid}`. The app path becomes `/apps/{app_id}` (no `/api`). For local LAN via Tunnel it's the hub IP. Both are handled by `buildHubUrl()` in `hub-proxy.ts`.
 
+### Real-time updates (WebSocket)
+`GET /api/hub/events` (with an `Upgrade: websocket` header) is handled separately in `hub-proxy.ts` (`handleWebSocketProxy()`), not by `buildHubUrl()`. The Worker opens a second WebSocket to the hub's own `ws://{host}/eventsocket` (unauthenticated on LAN) and bridges messages both ways — this only works for LAN/Tunnel hub URLs. For Hubitat Cloud base URLs the Worker returns `501` immediately (the cloud API has no eventsocket) and the browser falls back to polling. `hubBaseUrl` is passed as a `?hubBaseUrl=` query param on the upgrade so browser-only mode works without KV; tunnels behind CF Access are supported via the `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` service-token secrets.
+
+Browser side (`index.html`): `connectWebSocket()` opens the socket on boot (after hub creds are confirmed) and again after a successful save of hub connection settings. The `#ws-dot` element in the topbar reflects live/polling state. Polling (`pollSec`, default 5s) always keeps running as a safety net even when the WebSocket is connected — don't remove the polling fallback when touching this code; cloud-hosted hubs depend on it entirely. `startDeviceListSync()` additionally re-fetches the full device list every 5 minutes, because `handleHubEvent()` only patches attributes of already-known devices — without it, devices added on the hub mid-session never appear until reload.
+
 ### KV keys
 
 All config keys are prefixed with the hub ID (`{hubId}:key`). The hub ID is
@@ -101,7 +108,7 @@ singleton key is unprefixed:
 | `{hubId}:custom-dashboards` | `Record<string, CustomDashboard>` |
 | `{hubId}:dashboards-visible` | `Record<string, boolean>` — nav chip visibility |
 | `{hubId}:dashboards-order` | `string[]` — nav chip ordering |
-| `{hubId}:status-bar-presence-devices` | presence device IDs for status bar |
+| `{hubId}:status-bar-presence-devices` | `Record<deviceId, {label, kind}>` — presence devices pinned to the status bar |
 
 **Migration from flat keys**: on first access after deploying, each `load*`
 function checks the prefixed key and, if absent, reads the legacy flat key and
@@ -160,11 +167,18 @@ Applied in both `renderTile()` (text kind) and `renderCustomDashboard()`.
 ### Spacer tiles
 `kind: 'spacer'` — invisible in normal mode (opacity 0, no pointer events), dashed outline in edit mode. Used to hold grid gaps so tiles don't flow-fill empty cells.
 
+### Status bar presence chips
+Settings has a presence-device picker (checkbox + custom label per device) that populates `statusBarPresenceDevices`, independent of whether that device also has a tile. This lets a presence sensor's chip stay visible in the top status bar even after its tile is hidden or removed. Chip label resolution order: active slot label → saved `statusBarPresenceDevices[id].label` → device `label`/`name` → device ID.
+
+### Garage door color convention
+Garage tiles use inverted active-state coloring vs. every other kind: open renders the `alert` (red) CSS class, closed renders `active` (green) — the opposite of switches/locks where "on"/active state is green. This is intentional (open garage = attention-worthy) and applied identically in `renderTile()`, dynamic tiles, and `renderCustomDashboard()`. Don't unify this with the generic active-state coloring.
+
 ## Common commands
 
 ```bash
 npm install
 npm run dev          # → http://localhost:8787, uses .dev.vars
+npm run typecheck    # tsc --noEmit — only checks src/*.ts (index.html is untyped JS)
 npm run deploy       # deploy to Cloudflare
 npx wrangler tail    # tail production logs
 # KV keys are now prefixed by hub ID — substitute {HUB-UID} with the actual UID
@@ -200,6 +214,8 @@ npx wrangler kv key get registered-hub-id --binding=CONFIG
 8. **Image tiles in custom dashboards**: `<img>` must have `pointer-events: none; -webkit-user-drag: none` or the browser hijacks the tile drag with its own image-drag behavior. The drag/resize handles need `z-index: 3` to appear above the image element. The CSS `aspect-ratio` must be unset for `#custom-grid .image-tile` to let row-span control height.
 9. **Dynamic dashboard kind-based matching is exclusive**: a device auto-detected as `bulb` won't appear in Switches. The `battery` group overlaps (attribute-based, not kind-based). `dynamicOverrides` lets users manually reclassify devices.
 10. **`renderView()` must always be called after `readHash()`**: setting `currentView` alone doesn't change which DOM sections are visible. Boot calls both, `navigate()` calls both. Missing either one causes the wrong view to show.
+11. **`types.ts` lags the actual runtime KV shape.** `config.ts` only checks `isObject(body.dynamic)` / `isObject(body.custom)` and writes them through as opaque JSON — it never validates against the `DynamicConfig`/`CustomTile` interfaces. Tile duplication in `index.html` works via `{...tile}` shallow spread, so extra fields survive regardless of what `types.ts` declares. When adding a new tile field, update `types.ts` for documentation's sake, but don't expect the Worker to enforce it — the browser's JS objects are the real schema.
+12. **WebSocket real-time updates only work for LAN/Tunnel hub URLs.** Hubitat Cloud base URLs get a `501` from `handleWebSocketProxy()` and always run on polling. Don't assume `connectWebSocket()` succeeding means live push for cloud-connected setups.
 
 ## Things to not change without thinking
 
@@ -209,6 +225,7 @@ npx wrangler kv key get registered-hub-id --binding=CONFIG
 - The "Auto" style behavior for switches (green when on). Users build muscle memory around this.
 - The "flat / light gray" style for the three bottom toggles. Visually distinct on purpose.
 - The `dynKindForDevice()` auto-detection priority order. Changes which group devices land in.
+- The garage door inverted color convention (open=red/alert, closed=green/active). Intentional — matches the security-panel mental model.
 
 ## Open questions / future work
 
@@ -216,10 +233,10 @@ npx wrangler kv key get registered-hub-id --binding=CONFIG
 - [ ] Image proxy route so remote cameras work behind CF Access (`/api/image-proxy?url=...`)
 - [ ] Per-user config isolation (key KV by CF-Access user email)
 - [ ] Backup/snapshot of KV to git (scheduled GitHub Action)
-- [ ] Custom URL link to the hub's native interface — an "exit"/external-link icon above the settings gear that opens a configurable URL (e.g. the Hubitat hub's own UI) in a new tab
-- [ ] Customizable pill color for dashboard nav chips, for both auto-generated (dynamic) dashboards and custom dashboards
-- [ ] Light/dark mode toggle icon above the settings gear, plus an auto day/night mode that changes the dashboard's look and feel based on time of day
-- [ ] All of the above (custom hub URL, pill colors, light/dark + day/night theming) should persist like other settings: stored in the browser by default, with the option to push to KV for shared/kiosk use
+- [x] ~~Custom URL link to the hub's native interface~~ — **done.** `hubExternalUrl` setting + "⎋" icon button on the status row (opens in a new tab; opens Settings when unset).
+- [x] ~~Customizable pill color for dashboard nav chips~~ — **done.** Two independent color pickers: `chipAccent` (Main + custom dashboards) and `chipAccentDynamic` (auto-generated dashboards).
+- [x] ~~Light/dark mode toggle + auto day/night mode~~ — **done.** `theme` setting (`auto`/`light`/`dark`, default auto = light 7am–7pm local); "◐" topbar button flips light/dark directly, `auto` selectable in Settings; light palette via `html[data-theme="light"]` CSS variable overrides.
+- [x] ~~Persistence for the above~~ — **done.** All three persist through the same paths as other settings (localStorage always; KV via Save Config to KV).
 
 ## Reference links
 
