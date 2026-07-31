@@ -543,6 +543,31 @@
   /* Confirm modal — compact centered */
   #confirm-modal .modal-card { max-width: 360px; text-align: center; }
 
+  /* Thermostat control */
+  #thermostat-modal .modal-card { max-width: 380px; text-align: center; }
+  .thermo-temp {
+    font-size: 52px; font-weight: 600; line-height: 1; margin-bottom: 4px;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+  }
+  .thermo-temp svg { width: 36px; height: 36px; fill: currentColor; flex-shrink: 0; }
+  .thermo-sub { color: var(--tile-label); font-size: 13px; margin-bottom: 4px; text-transform: capitalize; }
+  .thermo-setpoint-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 12px 4px; border-top: 1px solid #2a2a2a; text-align: left;
+  }
+  .thermo-setpoint-label { font-size: 13px; color: var(--tile-label); }
+  .thermo-setpoint-value { font-size: 22px; font-weight: 600; min-width: 56px; text-align: center; }
+  .thermo-step {
+    width: 40px; height: 40px; border-radius: 50%; border: none; flex-shrink: 0;
+    background: #2a2a2a; color: var(--tile-text); font-size: 20px; line-height: 1;
+    cursor: pointer;
+  }
+  .thermo-step:active { background: var(--info); }
+  .thermo-modes, .thermo-fan {
+    display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 14px;
+  }
+  .thermo-mode-btn { flex: 0 1 auto; min-width: 64px; }
+
   /* Dashboard manager items */
   .dashboard-item {
     display: flex; align-items: center; gap: 8px;
@@ -818,7 +843,7 @@
     <div class="form-row" style="margin-top:8px">
       <label>
         <input type="checkbox" id="cfg-auto-dynamic" />
-        Show auto-generated dashboards (Switches, Lights, Locks, Battery, Presence, Contact Sensors, Shades)
+        Show auto-generated dashboards (Switches, Lights, Locks, Battery, Presence, Contact Sensors, Shades, Thermostats)
       </label>
     </div>
 
@@ -902,6 +927,17 @@
   </div>
 </div>
 
+<!-- Thermostat control -->
+<div class="modal" id="thermostat-modal">
+  <div class="modal-card">
+    <h2 id="thermostat-title">Thermostat</h2>
+    <div id="thermostat-body"></div>
+    <div class="btn-row">
+      <button class="btn secondary" id="thermostat-cancel">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Bulb / dimmer level picker -->
 <div class="modal" id="bulb-level-modal">
   <div class="modal-card">
@@ -936,6 +972,7 @@
         <option value="water">Water sensor (wet/dry)</option>
         <option value="valve">Valve (open/closed)</option>
         <option value="shade">Window Shade (positions)</option>
+        <option value="thermostat">Thermostat</option>
         <option value="presence">Presence</option>
         <option value="mode">Hubitat Mode</option>
         <option value="hsm">HSM Status</option>
@@ -1196,6 +1233,7 @@ const DYNAMIC_GROUPS = [
   { key:'presence',  label:'Presence',        match: d => dynKindForDevice(d) === 'presence' },
   { key:'contact',   label:'Contact Sensors', match: d => dynKindForDevice(d) === 'contact' },
   { key:'shades',    label:'Shades',          match: d => dynKindForDevice(d) === 'shade' },
+  { key:'thermostats', label:'Thermostats',   match: d => dynKindForDevice(d) === 'thermostat' },
 ];
 
 // ── Grid helpers ──────────────────────────────────────────────────────────────
@@ -1535,6 +1573,35 @@ function hasCapability(device, cap) {
   if (!device || !device.capabilities) return false;
   return device.capabilities.some(c => typeof c === 'string' ? c === cap : false);
 }
+
+// ── Thermostat helpers ────────────────────────────────────────────────────────
+
+function thermostatModeIcon(mode) {
+  const m = (mode || '').toLowerCase();
+  if (m === 'cool') return 'snowflake';
+  if (m.includes('heat')) return 'fire';
+  return 'thermostat';
+}
+// Short setpoint text for the tile-battery badge, e.g. "68°" (heat/cool) or "68°/74°" (auto).
+function thermostatSetpointBadge(d, mode) {
+  const m = (mode || '').toLowerCase();
+  const heatSp = getAttr(d, 'heatingSetpoint');
+  const coolSp = getAttr(d, 'coolingSetpoint');
+  if (m === 'auto') return (heatSp != null && coolSp != null) ? `${heatSp}°/${coolSp}°` : '';
+  if (m === 'cool') return coolSp != null ? `${coolSp}°` : '';
+  if (m.includes('heat')) return heatSp != null ? `${heatSp}°` : '';
+  return '';
+}
+// Hubitat's supportedThermostatModes/supportedThermostatFanModes attributes are a JSON-array string.
+function parseSupportedList(d, attrName) {
+  const raw = getAttr(d, attrName);
+  if (!raw) return null;
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.map(v => String(v).toLowerCase()) : null;
+  } catch { return null; }
+}
+
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c =>
     ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1645,6 +1712,7 @@ const MDI_ICONS = {
   'thermometer': '<svg viewBox="0 0 24 24"><path d="M15 13V5A3 3 0 0 0 9 5V13A5 5 0 1 0 15 13M12 4A1 1 0 0 1 13 5V8H11V5A1 1 0 0 1 12 4Z" /></svg>',
   'thermostat': '<svg viewBox="0 0 24 24"><path d="M16.95,16.95L14.83,14.83C15.55,14.1 16,13.1 16,12C16,11.26 15.79,10.57 15.43,10L17.6,7.81C18.5,9 19,10.43 19,12C19,13.93 18.22,15.68 16.95,16.95M12,5C13.57,5 15,5.5 16.19,6.4L14,8.56C13.43,8.21 12.74,8 12,8A4,4 0 0,0 8,12C8,13.1 8.45,14.1 9.17,14.83L7.05,16.95C5.78,15.68 5,13.93 5,12A7,7 0 0,1 12,5M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12C22,6.47 17.5,2 12,2Z" /></svg>',
   'thermostat-box': '<svg viewBox="0 0 24 24"><path d="M5,3A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3H5M12,5C13.57,5 15,5.5 16.19,6.4L14,8.56C13.43,8.21 12.74,8 12,8A4,4 0 0,0 8,12C8,13.1 8.45,14.1 9.17,14.83L7.05,16.95C5.78,15.68 5,13.93 5,12A7,7 0 0,1 12,5M17.6,7.81C18.5,9 19,10.43 19,12C19,13.93 18.22,15.68 16.95,16.95L14.83,14.83C15.55,14.1 16,13.1 16,12C16,11.26 15.79,10.57 15.43,10L17.6,7.81Z" /></svg>',
+  'snowflake': '<svg viewBox="0 0 24 24"><path d="M11 2V6.66L8.11 3.78L6.7 5.19L11 9.5V11H9.5L5.19 6.7L3.78 8.11L6.66 11H2V13H6.66L3.78 15.89L5.19 17.3L9.5 13H11V14.5L6.7 18.81L8.11 20.22L11 17.34V22H13V17.34L15.89 20.22L17.3 18.81L13 14.5V13H14.5L18.81 17.3L20.22 15.89L17.34 13H22V11H17.34L20.22 8.11L18.81 6.7L14.5 11H13V9.5L17.3 5.19L15.89 3.78L13 6.66V2H11Z" /></svg>',
   'water-percent': '<svg viewBox="0 0 24 24"><path d="M12,3.25C12,3.25 6,10 6,14C6,17.32 8.69,20 12,20A6,6 0 0,0 18,14C18,10 12,3.25 12,3.25M14.47,9.97L15.53,11.03L9.53,17.03L8.47,15.97M9.75,10A1.25,1.25 0 0,1 11,11.25A1.25,1.25 0 0,1 9.75,12.5A1.25,1.25 0 0,1 8.5,11.25A1.25,1.25 0 0,1 9.75,10M14.25,14.5A1.25,1.25 0 0,1 15.5,15.75A1.25,1.25 0 0,1 14.25,17A1.25,1.25 0 0,1 13,15.75A1.25,1.25 0 0,1 14.25,14.5Z" /></svg>',
   'water-alert': '<svg viewBox="0 0 24 24"><path d="M10 3.25C10 3.25 16 10 16 14C16 17.31 13.31 20 10 20S4 17.31 4 14C4 10 10 3.25 10 3.25M20 7V13H18V7H20M18 17H20V15H18V17Z" /></svg>',
   'motion-sensor': '<svg viewBox="0 0 24 24"><path d="M10,0.2C9,0.2 8.2,1 8.2,2C8.2,3 9,3.8 10,3.8C11,3.8 11.8,3 11.8,2C11.8,1 11,0.2 10,0.2M15.67,1A7.33,7.33 0 0,0 23,8.33V7A6,6 0 0,1 17,1H15.67M18.33,1C18.33,3.58 20.42,5.67 23,5.67V4.33C21.16,4.33 19.67,2.84 19.67,1H18.33M21,1A2,2 0 0,0 23,3V1H21M7.92,4.03C7.75,4.03 7.58,4.06 7.42,4.11L2,5.8V11H3.8V7.33L5.91,6.67L2,22H3.8L6.67,13.89L9,17V22H10.8V15.59L8.31,11.05L9.04,8.18L10.12,10H15V8.2H11.38L9.38,4.87C9.08,4.37 8.54,4.03 7.92,4.03Z" /></svg>',
@@ -2144,6 +2212,17 @@ function renderTile(slotId, force) {
       if (valueEl) valueEl.innerHTML = `${iconSvg(shadeIcon)}<span>${shadePos || '—'}</span>`;
       break;
     }
+    case 'thermostat': {
+      if (!s.deviceId) { el.classList.add('unmapped'); break; }
+      const temp = getAttr(d, 'temperature');
+      const mode = getAttr(d, 'thermostatMode');
+      const opState = (getAttr(d, 'thermostatOperatingState') || '').toLowerCase();
+      if (opState === 'heating' || opState === 'cooling') el.classList.add('active');
+      const thermoIcon = s.icon || thermostatModeIcon(mode);
+      if (valueEl) valueEl.innerHTML = `${iconSvg(thermoIcon)}<span>${temp != null ? temp + '°' : '—'}</span>`;
+      if (batteryEl) batteryEl.textContent = thermostatSetpointBadge(d, mode);
+      break;
+    }
     case 'text': {
       if (!s.deviceId) { el.classList.add('unmapped'); break; }
       if (!d) { if (valueEl) valueEl.textContent = '(device?)'; break; }
@@ -2342,6 +2421,11 @@ async function onTileClick(e) {
         const shadePos = getAttr(d, 'windowShade');
         console.log('Shade tile clicked:', { deviceId: s.deviceId, label: s.label, shadePos });
         showShadePositionPicker(s.deviceId, s.label, shadePos);
+        return;
+      }
+      case 'thermostat': {
+        if (!d) { openTileEditor(slotId); return; }
+        showThermostatPicker(s.deviceId, s.label || d.label || d.name);
         return;
       }
       default: openTileEditor(slotId); return;
@@ -2577,6 +2661,115 @@ async function showShadePositionPicker(deviceId, label, currentPos) {
   }
 }
 
+// ── Thermostat control ───────────────────────────────────────────────────────
+
+const THERMOSTAT_MODE_OPTIONS = [
+  { value: 'off',            label: 'Off' },
+  { value: 'heat',           label: 'Heat' },
+  { value: 'cool',           label: 'Cool' },
+  { value: 'auto',           label: 'Auto' },
+  { value: 'emergency heat', label: 'Emerg. Heat' },
+];
+const THERMOSTAT_FAN_MODE_OPTIONS = [
+  { value: 'auto',      label: 'Fan: Auto' },
+  { value: 'on',        label: 'Fan: On' },
+  { value: 'circulate', label: 'Fan: Circulate' },
+];
+
+function showThermostatPicker(deviceId, label) {
+  const modal = document.getElementById('thermostat-modal');
+  if (!modal) { console.error('Thermostat modal not found'); return; }
+  document.getElementById('thermostat-title').textContent = label || 'Thermostat';
+  renderThermostatBody(deviceId);
+  modal.classList.add('open');
+}
+
+// Re-fetches devices, re-renders the modal body in place (stays open) so
+// setpoint/mode/fan taps give immediate feedback without closing the modal.
+async function thermostatSendCommand(deviceId, command, value) {
+  try {
+    await sendCommand(deviceId, command, value !== undefined ? String(value) : undefined);
+  } catch (e) {
+    alert('Command failed: ' + (e.message || e));
+  }
+  await refreshAll();
+  renderThermostatBody(deviceId);
+}
+
+function renderThermostatBody(deviceId) {
+  const d = findDevice(deviceId);
+  const body = document.getElementById('thermostat-body');
+  if (!body) return;
+  if (!d) { body.innerHTML = '<div class="thermo-sub">Device not found</div>'; return; }
+
+  const mode     = (getAttr(d, 'thermostatMode') || '').toLowerCase();
+  const opState  = getAttr(d, 'thermostatOperatingState') || '';
+  const temp     = getAttr(d, 'temperature');
+  const humidity = getAttr(d, 'humidity');
+  const heatSp   = getAttr(d, 'heatingSetpoint');
+  const coolSp   = getAttr(d, 'coolingSetpoint');
+  const fanMode  = (getAttr(d, 'thermostatFanMode') || '').toLowerCase();
+
+  const supportedModes    = parseSupportedList(d, 'supportedThermostatModes') || THERMOSTAT_MODE_OPTIONS.map(o => o.value);
+  const supportedFanModes = parseSupportedList(d, 'supportedThermostatFanModes');
+  const hasHeat = getAttr(d, 'heatingSetpoint') !== undefined;
+  const hasCool = getAttr(d, 'coolingSetpoint') !== undefined;
+
+  let html = `<div class="thermo-temp">${iconSvg(thermostatModeIcon(mode))}<span>${temp != null ? temp + '°' : '—'}</span></div>`;
+  html += `<div class="thermo-sub">${escapeHtml(opState || mode || '—')}${humidity != null ? ` · ${humidity}% humidity` : ''}</div>`;
+
+  if (hasHeat) {
+    html += `<div class="thermo-setpoint-row">
+      <span class="thermo-setpoint-label">Heat to</span>
+      <button class="thermo-step" data-sp="heat" data-dir="-1">−</button>
+      <span class="thermo-setpoint-value">${heatSp != null ? heatSp + '°' : '—'}</span>
+      <button class="thermo-step" data-sp="heat" data-dir="1">+</button>
+    </div>`;
+  }
+  if (hasCool) {
+    html += `<div class="thermo-setpoint-row">
+      <span class="thermo-setpoint-label">Cool to</span>
+      <button class="thermo-step" data-sp="cool" data-dir="-1">−</button>
+      <span class="thermo-setpoint-value">${coolSp != null ? coolSp + '°' : '—'}</span>
+      <button class="thermo-step" data-sp="cool" data-dir="1">+</button>
+    </div>`;
+  }
+
+  html += `<div class="thermo-modes">${THERMOSTAT_MODE_OPTIONS
+    .filter(o => supportedModes.includes(o.value))
+    .map(o => `<button class="btn sm thermo-mode-btn${o.value === mode ? '' : ' secondary'}" data-mode="${o.value}">${o.label}</button>`)
+    .join('')}</div>`;
+
+  if (supportedFanModes && supportedFanModes.length) {
+    html += `<div class="thermo-fan">${THERMOSTAT_FAN_MODE_OPTIONS
+      .filter(o => supportedFanModes.includes(o.value))
+      .map(o => `<button class="btn sm${o.value === fanMode ? '' : ' secondary'}" data-fan="${o.value}">${o.label}</button>`)
+      .join('')}</div>`;
+  }
+
+  body.innerHTML = html;
+
+  body.querySelectorAll('[data-sp]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const spKind = btn.dataset.sp;
+      const dir = parseInt(btn.dataset.dir, 10);
+      const cur = spKind === 'heat' ? heatSp : coolSp;
+      const next = (parseFloat(cur) || 0) + dir;
+      thermostatSendCommand(deviceId, spKind === 'heat' ? 'setHeatingSetpoint' : 'setCoolingSetpoint', next);
+    });
+  });
+  body.querySelectorAll('[data-mode]').forEach(btn => {
+    btn.addEventListener('click', () => thermostatSendCommand(deviceId, 'setThermostatMode', btn.dataset.mode));
+  });
+  body.querySelectorAll('[data-fan]').forEach(btn => {
+    btn.addEventListener('click', () => thermostatSendCommand(deviceId, 'setThermostatFanMode', btn.dataset.fan));
+  });
+}
+
+document.getElementById('thermostat-cancel').addEventListener('click', () => {
+  document.getElementById('thermostat-modal').classList.remove('open');
+});
+
 async function showBulbLevelPicker(deviceId, label) {
   const modal = document.getElementById('bulb-level-modal');
   if (!modal) return;
@@ -2628,6 +2821,7 @@ function showDynKindPicker(deviceId, label, groupKey) {
     { value: 'shade',    label: 'Window Shade' },
     { value: 'valve',    label: 'Valve' },
     { value: 'water',    label: 'Water Sensor' },
+    { value: 'thermostat', label: 'Thermostat' },
   ].map(o => ({ ...o, label: o.label + (o.value === currentKind ? '  ✓' : '') }));
 
   showPicker(`Reclassify: ${label}`, options, currentKind, async val => {
@@ -2940,6 +3134,7 @@ function dynKindForDevice(d) {
   if (hasCapability(d,'WindowShade') || getAttr(d,'windowShade') !== undefined) return 'shade';
   if (hasCapability(d,'Valve') || getAttr(d,'valve') !== undefined) return 'valve';
   if (hasCapability(d,'WaterSensor') || getAttr(d,'water') !== undefined) return 'water';
+  if (hasCapability(d,'Thermostat') || getAttr(d,'thermostatMode') !== undefined) return 'thermostat';
   return 'text';
 }
 
@@ -3002,6 +3197,12 @@ function dynValueForDevice(d, kind, tile = {}) {
       const valveIcon = (isOpen ? tile.iconOn : tile.iconOff) || tile.icon || (isOpen ? 'valve' : 'valve-closed');
       return `${iconSvg(valveIcon)}<span>${v || '—'}</span>`;
     }
+    case 'thermostat': {
+      const temp = getAttr(d, 'temperature');
+      const mode = getAttr(d, 'thermostatMode');
+      const thermoIcon = tile.icon || thermostatModeIcon(mode);
+      return `${iconSvg(thermoIcon)}<span>${temp != null ? temp + '°' : '—'}</span>`;
+    }
     default: {
       const batt = getAttr(d,'battery');
       return batt != null ? `${batt}%` : '';
@@ -3020,6 +3221,10 @@ function dynIsActive(d, kind) {
     case 'water':    return getAttr(d,'water')    === 'wet';
     case 'valve':    return getAttr(d,'valve')    === 'open';
     case 'shade':    return getAttr(d,'windowShade') === 'open';
+    case 'thermostat': {
+      const opState = (getAttr(d,'thermostatOperatingState') || '').toLowerCase();
+      return opState === 'heating' || opState === 'cooling';
+    }
     default: return false;
   }
 }
@@ -3061,6 +3266,9 @@ async function onDynTileClick(deviceId, groupKey) {
       const isOpen = v === 'open';
       // For dynamic dashboards, always show timer picker for valves
       showValveTimerPicker(deviceId, d.label || d.name, isOpen);
+      return;
+    } else if (kind === 'thermostat') {
+      showThermostatPicker(deviceId, d.label || d.name);
       return;
     }
     setTimeout(() => { refreshAll(); renderDynamicDashboard(groupKey); }, 400);
@@ -3341,6 +3549,9 @@ async function onCustomTileClick(e, dashName, slotId) {
       const isOpen = v === 'open';
       // For custom dashboards, always show timer picker for valves
       showValveTimerPicker(tile.deviceId, tile.label || (d && (d.label || d.name)) || tile.deviceId, isOpen);
+      return;
+    } else if (kind === 'thermostat') {
+      showThermostatPicker(tile.deviceId, tile.label || (d && (d.label || d.name)) || tile.deviceId);
       return;
     }
     setTimeout(() => { refreshAll(); renderCustomDashboard(dashName); }, 400);
@@ -3714,6 +3925,7 @@ function populateDeviceDropdown(kind, currentId) {
     garage:   d => hasCapability(d,'GarageDoorControl')|| getAttr(d,'door')     !== undefined,
     contact:  d => hasCapability(d,'ContactSensor')   || getAttr(d,'contact')   !== undefined,
     presence: d => hasCapability(d,'PresenceSensor')  || getAttr(d,'presence')  !== undefined,
+    thermostat: d => hasCapability(d,'Thermostat')    || getAttr(d,'thermostatMode') !== undefined,
     image:    isImageDevice,
   };
   const allSorted = [...devices].sort((a,b) => (a.label||a.name||'').localeCompare(b.label||b.name||''));
@@ -3761,7 +3973,7 @@ function populateAttrDropdown(initialValue = '') {
 }
 
 // Kinds whose tiles render an icon (and so support a per-tile icon override)
-const ICON_ELIGIBLE_KINDS = ['switch','bulb','presence','lock','garage','water','valve','shade'];
+const ICON_ELIGIBLE_KINDS = ['switch','bulb','presence','lock','garage','water','valve','shade','thermostat'];
 
 // Binary-state kinds get separate "on"/"off" icon overrides instead of one fallback icon.
 // Labels describe what each state actually means for that kind.
