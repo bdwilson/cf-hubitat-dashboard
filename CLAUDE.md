@@ -69,13 +69,14 @@ All valid kinds are the union type in `src/types.ts`:
 
 ```
 switch | bulb | lock | garage | contact | presence | mode | hsm
-image | dashboard-link | text | water | valve | shade | spacer | hidden
+image | dashboard-link | text | water | valve | shade | thermostat | spacer | hidden
 ```
 
 - **`bulb`**: dimmer/light. Tapping opens a level picker (25/50/75/100% + Off). Rendered with lightbulb icon + level %.
 - **`spacer`**: invisible placeholder tile for layout gaps. Shows a dashed outline in edit mode only.
 - **`image`**: Virtual Image device or static URL. Renders full-bleed with `<img>` + cache-busted URL. Tapping opens a lightbox. Works on both main dashboard and custom dashboards.
 - **`text`**: shows an arbitrary device attribute as text. Attribute is configurable in the tile editor.
+- **`thermostat`**: shows current temperature + a mode icon (fire/snowflake/thermostat) on the tile, with the active setpoint as a small badge. Tapping opens `showThermostatPicker()` — a control modal (`#thermostat-modal`) with heat/cool setpoint steppers (±1°, sent via `setHeatingSetpoint`/`setCoolingSetpoint`), a mode picker (`setThermostatMode`), and — when the device reports `supportedThermostatFanModes` — a fan mode picker (`setThermostatFanMode`). The modal stays open and re-renders in place after each command (`renderThermostatBody()`) rather than closing, so multiple adjustments don't require reopening it. Mode/fan buttons are filtered to what the device actually supports via `supportedThermostatModes`/`supportedThermostatFanModes` (JSON-array attribute strings), falling back to a default mode list if absent. Detected in `dynKindForDevice()` via the `Thermostat` capability or a `thermostatMode` attribute; auto-added to the "Thermostats" dynamic dashboard group.
 
 Each kind has a render branch in `renderTile()` (main dashboard), `dynValueForDevice()` (dynamic dashboards), and `renderCustomDashboard()` (custom dashboards). Click handlers: `onTileClick()`, `onDynTileClick()`, `onCustomTileClick()`.
 
@@ -117,7 +118,7 @@ migrates it automatically. No manual step required.
 **Never rename the `registered-hub-id` key or the `{hubId}:` prefix scheme.**
 
 ### Dynamic dashboards
-Auto-generated from Hubitat device capabilities. Seven groups:
+Auto-generated from Hubitat device capabilities. Eight groups:
 
 ```js
 const DYNAMIC_GROUPS = [
@@ -128,6 +129,7 @@ const DYNAMIC_GROUPS = [
   { key:'presence', label:'Presence',        match: d => dynKindForDevice(d) === 'presence' },
   { key:'contact',  label:'Contact Sensors', match: d => dynKindForDevice(d) === 'contact' },
   { key:'shades',   label:'Shades',          match: d => dynKindForDevice(d) === 'shade' },
+  { key:'thermostats', label:'Thermostats',  match: d => dynKindForDevice(d) === 'thermostat' },
 ];
 ```
 
