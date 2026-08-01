@@ -1576,7 +1576,13 @@ function hasCapability(device, cap) {
 
 // ── Thermostat helpers ────────────────────────────────────────────────────────
 
-function thermostatModeIcon(mode) {
+// Prefers the live operating state (what the thermostat is actually doing right
+// now) over the mode setting — a unit left in "auto" that's actively cooling
+// should show a snowflake, not the neutral dial icon `mode` alone would imply.
+function thermostatModeIcon(mode, opState) {
+  const os = (opState || '').toLowerCase();
+  if (os === 'cooling') return 'snowflake';
+  if (os.includes('heat')) return 'fire'; // "heating" or "pending heat"
   const m = (mode || '').toLowerCase();
   if (m === 'cool') return 'snowflake';
   if (m.includes('heat')) return 'fire';
@@ -2218,7 +2224,7 @@ function renderTile(slotId, force) {
       const mode = getAttr(d, 'thermostatMode');
       const opState = (getAttr(d, 'thermostatOperatingState') || '').toLowerCase();
       if (opState === 'heating' || opState === 'cooling') el.classList.add('active');
-      const thermoIcon = s.icon || thermostatModeIcon(mode);
+      const thermoIcon = s.icon || thermostatModeIcon(mode, opState);
       if (valueEl) valueEl.innerHTML = `${iconSvg(thermoIcon)}<span>${temp != null ? temp + '°' : '—'}</span>`;
       if (batteryEl) batteryEl.textContent = thermostatSetpointBadge(d, mode);
       break;
@@ -2715,7 +2721,7 @@ function renderThermostatBody(deviceId) {
   const hasHeat = getAttr(d, 'heatingSetpoint') !== undefined;
   const hasCool = getAttr(d, 'coolingSetpoint') !== undefined;
 
-  let html = `<div class="thermo-temp">${iconSvg(thermostatModeIcon(mode))}<span>${temp != null ? temp + '°' : '—'}</span></div>`;
+  let html = `<div class="thermo-temp">${iconSvg(thermostatModeIcon(mode, opState))}<span>${temp != null ? temp + '°' : '—'}</span></div>`;
   html += `<div class="thermo-sub">${escapeHtml(opState || mode || '—')}${humidity != null ? ` · ${humidity}% humidity` : ''}</div>`;
 
   if (hasHeat) {
@@ -3200,7 +3206,8 @@ function dynValueForDevice(d, kind, tile = {}) {
     case 'thermostat': {
       const temp = getAttr(d, 'temperature');
       const mode = getAttr(d, 'thermostatMode');
-      const thermoIcon = tile.icon || thermostatModeIcon(mode);
+      const opState = getAttr(d, 'thermostatOperatingState');
+      const thermoIcon = tile.icon || thermostatModeIcon(mode, opState);
       return `${iconSvg(thermoIcon)}<span>${temp != null ? temp + '°' : '—'}</span>`;
     }
     default: {
