@@ -2400,7 +2400,7 @@ async function onTileClick(e) {
         if (!d) { openTileEditor(slotId); return; }
         const v = getAttr(d, 'valve');
         const isOpen = v === 'open';
-        console.log('Valve tile clicked:', { deviceId, label: s.label, valveTimer: s.valveTimer, isOpen });
+        console.log('Valve tile clicked:', { deviceId: s.deviceId, label: s.label, valveTimer: s.valveTimer, isOpen });
         // If timer is enabled, show duration picker instead of direct toggle
         if (s.valveTimer) {
           console.log('Showing valve timer picker');
