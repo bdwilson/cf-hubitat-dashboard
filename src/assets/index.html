@@ -1576,7 +1576,13 @@ function hasCapability(device, cap) {
 
 // ── Thermostat helpers ────────────────────────────────────────────────────────
 
-function thermostatModeIcon(mode) {
+// Prefers the live operating state (what the thermostat is actually doing right
+// now) over the mode setting — a unit left in "auto" that's actively cooling
+// should show a snowflake, not the neutral dial icon `mode` alone would imply.
+function thermostatModeIcon(mode, opState) {
+  const os = (opState || '').toLowerCase();
+  if (os === 'cooling') return 'snowflake';
+  if (os.includes('heat')) return 'fire'; // "heating" or "pending heat"
   const m = (mode || '').toLowerCase();
   if (m === 'cool') return 'snowflake';
   if (m.includes('heat')) return 'fire';
@@ -2218,7 +2224,7 @@ function renderTile(slotId, force) {
       const mode = getAttr(d, 'thermostatMode');
       const opState = (getAttr(d, 'thermostatOperatingState') || '').toLowerCase();
       if (opState === 'heating' || opState === 'cooling') el.classList.add('active');
-      const thermoIcon = s.icon || thermostatModeIcon(mode);
+      const thermoIcon = s.icon || thermostatModeIcon(mode, opState);
       if (valueEl) valueEl.innerHTML = `${iconSvg(thermoIcon)}<span>${temp != null ? temp + '°' : '—'}</span>`;
       if (batteryEl) batteryEl.textContent = thermostatSetpointBadge(d, mode);
       break;
@@ -2394,7 +2400,7 @@ async function onTileClick(e) {
         if (!d) { openTileEditor(slotId); return; }
         const v = getAttr(d, 'valve');
         const isOpen = v === 'open';
-        console.log('Valve tile clicked:', { deviceId, label: s.label, valveTimer: s.valveTimer, isOpen });
+        console.log('Valve tile clicked:', { deviceId: s.deviceId, label: s.label, valveTimer: s.valveTimer, isOpen });
         // If timer is enabled, show duration picker instead of direct toggle
         if (s.valveTimer) {
           console.log('Showing valve timer picker');
@@ -2588,12 +2594,18 @@ async function showValveTimerPicker(deviceId, label, isCurrentlyOpen) {
     if (el) {
       el.onclick = async () => {
         modal.classList.remove('open');
-        // Try sendCommand with secondary parameter: /devices/{id}/open/{minutes}
-        // If the driver doesn't support this, it will fail and we fallback to simple 'open'
-        await sendCommand(deviceId, 'open', String(minutes)).catch(() => {
-          // Fallback to simple 'open' if the driver doesn't support timer syntax
-          return sendCommand(deviceId, 'open');
-        });
+        try {
+          // /devices/{id}/open/{minutes} — the duration is REQUIRED here, not a nicety:
+          // per this device's driver, an open() call with no duration falls back to the
+          // parent's own (shorter) auto-off preference instead of staying open. Silently
+          // dropping the duration on failure would silently shorten the run, so on error
+          // we surface it instead of retrying without a duration.
+          await sendCommand(deviceId, 'open', String(minutes));
+        } catch (e) {
+          console.error('Timed valve open failed:', e);
+          alert(`Failed to open ${label || 'valve'} for ${minutes} min: ${e.message || e}\n\nThe valve was NOT opened — retry, or open it directly in the Hubitat app.`);
+          return;
+        }
         setTimeout(refreshAll, 400);
       };
     }
@@ -2715,7 +2727,7 @@ function renderThermostatBody(deviceId) {
   const hasHeat = getAttr(d, 'heatingSetpoint') !== undefined;
   const hasCool = getAttr(d, 'coolingSetpoint') !== undefined;
 
-  let html = `<div class="thermo-temp">${iconSvg(thermostatModeIcon(mode))}<span>${temp != null ? temp + '°' : '—'}</span></div>`;
+  let html = `<div class="thermo-temp">${iconSvg(thermostatModeIcon(mode, opState))}<span>${temp != null ? temp + '°' : '—'}</span></div>`;
   html += `<div class="thermo-sub">${escapeHtml(opState || mode || '—')}${humidity != null ? ` · ${humidity}% humidity` : ''}</div>`;
 
   if (hasHeat) {
@@ -3200,7 +3212,8 @@ function dynValueForDevice(d, kind, tile = {}) {
     case 'thermostat': {
       const temp = getAttr(d, 'temperature');
       const mode = getAttr(d, 'thermostatMode');
-      const thermoIcon = tile.icon || thermostatModeIcon(mode);
+      const opState = getAttr(d, 'thermostatOperatingState');
+      const thermoIcon = tile.icon || thermostatModeIcon(mode, opState);
       return `${iconSvg(thermoIcon)}<span>${temp != null ? temp + '°' : '—'}</span>`;
     }
     default: {
