@@ -2594,12 +2594,18 @@ async function showValveTimerPicker(deviceId, label, isCurrentlyOpen) {
     if (el) {
       el.onclick = async () => {
         modal.classList.remove('open');
-        // Try sendCommand with secondary parameter: /devices/{id}/open/{minutes}
-        // If the driver doesn't support this, it will fail and we fallback to simple 'open'
-        await sendCommand(deviceId, 'open', String(minutes)).catch(() => {
-          // Fallback to simple 'open' if the driver doesn't support timer syntax
-          return sendCommand(deviceId, 'open');
-        });
+        try {
+          // /devices/{id}/open/{minutes} — the duration is REQUIRED here, not a nicety:
+          // per this device's driver, an open() call with no duration falls back to the
+          // parent's own (shorter) auto-off preference instead of staying open. Silently
+          // dropping the duration on failure would silently shorten the run, so on error
+          // we surface it instead of retrying without a duration.
+          await sendCommand(deviceId, 'open', String(minutes));
+        } catch (e) {
+          console.error('Timed valve open failed:', e);
+          alert(`Failed to open ${label || 'valve'} for ${minutes} min: ${e.message || e}\n\nThe valve was NOT opened — retry, or open it directly in the Hubitat app.`);
+          return;
+        }
         setTimeout(refreshAll, 400);
       };
     }
