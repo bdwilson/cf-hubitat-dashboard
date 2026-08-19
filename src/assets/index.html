@@ -1069,6 +1069,13 @@
         <option value="portrait">Portrait (9:16, taller)</option>
       </select>
     </div>
+    <div class="form-row" id="te-fit-row" style="display:none">
+      <label>Image fit</label>
+      <select id="te-image-fit">
+        <option value="cover">Fill tile, crop edges (default — best for cameras)</option>
+        <option value="contain">Show whole image, letterbox if needed (best for charts/graphics)</option>
+      </select>
+    </div>
     <div class="form-row">
       <label>Tile width</label>
       <select id="te-col-span">
@@ -2080,6 +2087,8 @@ function renderTile(slotId, force) {
             <span class="image-edit" data-edit="${slotId}">⋮</span>`;
         }
       }
+      const imgEl = el.querySelector('img');
+      if (imgEl) imgEl.style.objectFit = s.imageFit === 'contain' ? 'contain' : 'cover';
     } else {
       el.innerHTML = `
         <div class="image-empty">${escapeHtml(s.label || slotId)} (unmapped)</div>
@@ -3412,9 +3421,10 @@ function renderCustomDashboard(name, force) {
       if (force || (now - last) >= refreshMs) imageLastRefreshed[cacheKey] = now;
       const ts = imageLastRefreshed[cacheKey];
       const busted = imgUrl ? imgUrl + (imgUrl.includes('?') ? '&' : '?') + '_t=' + ts : '';
+      const fit = tile.imageFit === 'contain' ? 'contain' : 'cover';
       return `<div class="image-tile${portrait}" data-custom-slot="${tile.slotId}" data-custom-name="${name}"${colAttr}${rowAttr}>
         <button class="tile-remove" data-custom-slot="${tile.slotId}" data-custom-name="${name}" title="Remove">×</button>
-        ${busted ? `<img src="${escapeHtml(busted)}" alt="">` : '<span style="color:var(--text-dim);font-size:11px;padding:8px">No image URL</span>'}
+        ${busted ? `<img src="${escapeHtml(busted)}" alt="" style="object-fit:${fit}">` : '<span style="color:var(--text-dim);font-size:11px;padding:8px">No image URL</span>'}
         <span class="image-label">${escapeHtml(tile.label || (d && (d.label || d.name)) || tile.deviceId)}</span>
         <span class="image-edit" data-custom-edit="${tile.slotId}">⋮</span>
         <span class="tile-drag-handle" title="Drag to reorder">⠿</span>
@@ -3697,6 +3707,7 @@ function openCustomTileEditor(dashName, slotId) {
   document.getElementById('te-valve-timer').checked       = !!tile.valveTimer;
   document.getElementById('te-render-html').checked       = !!tile.renderHtml;
   document.getElementById('te-image-orient').value        = tile.imageOrientation || 'landscape';
+  document.getElementById('te-image-fit').value            = tile.imageFit || 'cover';
   document.getElementById('te-col-span').value            = String(tile.colSpan ?? 1);
   document.getElementById('te-row-span').value            = String(tile.rowSpan || 1);
   document.getElementById('te-icon').value                = tile.icon    || '';
@@ -3930,6 +3941,7 @@ function openTileEditor(slotId) {
   document.getElementById('te-valve-timer').checked      = !!s.valveTimer;
   document.getElementById('te-render-html').checked      = !!s.renderHtml;
   document.getElementById('te-image-orient').value       = s.imageOrientation || 'landscape';
+  document.getElementById('te-image-fit').value           = s.imageFit || 'cover';
   document.getElementById('te-col-span').value           = String(s.colSpan ?? 1);
   document.getElementById('te-row-span').value           = String(s.rowSpan || 1);
   document.getElementById('te-icon').value               = s.icon    || '';
@@ -4025,6 +4037,7 @@ function syncTileEditorVisibility() {
   // Valve timer available for valve kind
   document.getElementById('te-valve-timer-row').style.display = kind === 'valve' ? '' : 'none';
   document.getElementById('te-orient-row').style.display   = kind === 'image'          ? '' : 'none';
+  document.getElementById('te-fit-row').style.display      = kind === 'image'          ? '' : 'none';
   document.getElementById('te-row-span-row').style.display = kind !== 'image'          ? '' : 'none';
 
   const iconEligible = ICON_ELIGIBLE_KINDS.includes(kind);
@@ -4154,6 +4167,8 @@ document.getElementById('te-save').addEventListener('click', () => {
         tile.urlNewTab  = document.getElementById('te-url-newtab').checked || undefined;
         const io = document.getElementById('te-image-orient').value;
         tile.imageOrientation = io === 'portrait' ? 'portrait' : undefined;
+        const ifit = document.getElementById('te-image-fit').value;
+        tile.imageFit = ifit === 'contain' ? 'contain' : undefined;
         const cs = parseFloat(document.getElementById('te-col-span').value) || 1;
         const rs = parseInt(document.getElementById('te-row-span').value, 10) || 1;
         if (cs > 1) tile.colSpan = cs; else delete tile.colSpan;
@@ -4191,12 +4206,14 @@ document.getElementById('te-save').addEventListener('click', () => {
   s.requireConfirm   = document.getElementById('te-require-confirm').checked || undefined;
   s.valveTimer       = document.getElementById('te-valve-timer').checked || undefined;
   s.imageOrientation = document.getElementById('te-image-orient').value === 'portrait' ? 'portrait' : undefined;
+  s.imageFit         = document.getElementById('te-image-fit').value === 'contain' ? 'contain' : undefined;
   s.colSpan          = parseFloat(document.getElementById('te-col-span').value) || 1;
   s.rowSpan          = parseInt(document.getElementById('te-row-span').value, 10) || 1;
   if (s.colSpan === 1) delete s.colSpan;
   if (s.rowSpan === 1) delete s.rowSpan;
   if (!s.requireConfirm) delete s.requireConfirm;
   if (!s.imageOrientation) delete s.imageOrientation;
+  if (!s.imageFit) delete s.imageFit;
   const icon = document.getElementById('te-icon').value;
   if (icon) s.icon = icon; else delete s.icon;
   const iconOn = document.getElementById('te-icon-on').value;

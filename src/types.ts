@@ -60,6 +60,8 @@ export interface SlotConfig {
   valveTimer?: boolean;
   /** Portrait images span 2 rows in the cameras grid */
   imageOrientation?: 'landscape' | 'portrait';
+  /** How the image fills its tile box. 'cover' (default) fills the tile and crops overflow — best for camera feeds. 'contain' shows the whole image letterboxed — best for charts/graphics with a fixed aspect ratio. */
+  imageFit?: 'cover' | 'contain';
   /** How many grid columns this tile spans (default 1; 0.5 = half column) */
   colSpan?: 0.5 | 1 | 2 | 3;
   /** How many grid rows this tile spans (default 1) */
@@ -139,6 +141,10 @@ export interface CustomTile {
   iconOff?: string;
   /** For `text` kind: render the attribute's value as sanitized HTML instead of plain escaped text. Some drivers (e.g. Device Watchdog) emit HTML-formatted attribute values meant to be rendered, not read as literal markup. */
   renderHtml?: boolean;
+  /** Portrait images span 2 rows */
+  imageOrientation?: 'landscape' | 'portrait';
+  /** How the image fills its tile box. 'cover' (default) fills the tile and crops overflow — best for camera feeds. 'contain' shows the whole image letterboxed — best for charts/graphics with a fixed aspect ratio. */
+  imageFit?: 'cover' | 'contain';
 }
 
 /** A user-created custom dashboard */
