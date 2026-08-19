@@ -195,16 +195,32 @@ npm run kv:restore -- kv-backups/<file>.json [--key=<single-key>] [--yes]
 
 ## KV backups
 
-A GitHub Action (`.github/workflows/kv-backup.yml`) runs nightly (09:00 UTC,
-also triggerable via `workflow_dispatch`), backs up every key in the CONFIG
-KV namespace to `kv-backups/<timestamp>.json`, and commits it if it changed —
-so config has a git history and survives a fresh deploy overwriting KV with
-default data (this happened once; the fix was recovering the previous config
-from a still-open browser tab's `localStorage` cache before it got cleared —
-not guaranteed to work twice). Uses the same `CLOUDFLARE_API_TOKEN`/
-`CLOUDFLARE_ACCOUNT_ID`/`KV_NAMESPACE_ID` repo secrets as `deploy.yml`; skips
-itself (no error) if `KV_NAMESPACE_ID` is unset, matching browser-only
-deployments that don't use KV at all.
+Config lives in KV, and a fresh deploy overwriting it with default data has
+happened once already (the fix was recovering the previous config from a
+still-open browser tab's `localStorage` cache before it got cleared — not
+guaranteed to work twice). Two ways to guard against that; see the
+"Automated KV backups" section in README.md for full end-user setup steps —
+this is the short version for future Claude sessions:
+
+**GitHub Action** (`.github/workflows/kv-backup.yml`): runs nightly (09:00
+UTC, also triggerable via `workflow_dispatch`), backs up every key in the
+CONFIG KV namespace to `kv-backups/<timestamp>.json`, and commits it if it
+changed. Uses the same `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`/
+`KV_NAMESPACE_ID` repo secrets as `deploy.yml`; skips itself (no error) if
+`KV_NAMESPACE_ID` is unset, matching browser-only deployments. **Gated off
+by default** — the job's `if: vars.KV_BACKUP_ENABLED == 'true'` condition
+means it never runs unless that repo variable is explicitly set, because
+committing config (even with the hub token redacted) to a public repo's git
+history isn't something to do silently. Kept in the repo as a working
+example; the maintainer's own live deployment does not have the variable
+set, so it stays inert here.
+
+**Self-hosted** (`scripts/backup-kv.js` run from your own machine/server via
+cron/systemd/launchd/Task Scheduler instead of GitHub Actions): identical
+script, same redaction behavior, but nothing ever touches this repo's git
+history — backups land as local JSON files wherever you point it. This is
+the option to point people at when they don't want to make their fork
+private just to use the GitHub Action. Documented in README.md.
 
 Restore with `npm run kv:restore -- kv-backups/<file>.json` — restores every
 key in the file by default, or pass `--key=<name>` for just one; prompts for

@@ -1,5 +1,25 @@
 name: Backup KV Config
 
+# Disabled by default — see the "Automated KV backups" section in README.md.
+#
+# This workflow commits a JSON dump of your KV config (dashboard layout, tile
+# labels, custom dashboards — hub token redacted, everything else in the
+# clear) to this repo on every run. That's fine for a private repo, but if
+# your fork is public, those commits are public too. It's kept here as a
+# working example for anyone who forks this repo and wants to use it, but it
+# will not run until you opt in:
+#
+#   1. Repo Settings → Secrets and variables → Actions → Variables tab
+#   2. Add a repository variable named KV_BACKUP_ENABLED with value: true
+#   3. Make sure your fork is private first if you don't want backup commits
+#      publicly visible (Settings → General → Danger Zone → Change visibility)
+#
+# The CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID/KV_NAMESPACE_ID secrets are
+# the same ones deploy.yml already uses — no separate secrets needed.
+#
+# Prefer not to touch this repo's git history at all, even privately? See
+# "Self-hosted backups" in the same README section for running the backup
+# script from your own machine/server instead — nothing gets committed.
 on:
   schedule:
     # 09:00 UTC nightly. Adjust for your timezone as needed.
@@ -11,6 +31,7 @@ permissions:
 
 jobs:
   backup:
+    if: ${{ vars.KV_BACKUP_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     name: Backup KV
     steps:
