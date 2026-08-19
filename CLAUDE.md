@@ -231,6 +231,14 @@ the dashboard reads from, so treat it like any other production write.
 
 `npm run dev` runs miniflare locally. For HTML/JS changes: edit `src/assets/index.html`, refresh browser, done. No build step. For Worker changes: `npm run dev` hot-reloads. **Do not commit `.dev.vars`** — gitignored. **Do not commit `wrangler.toml`** — gitignored; contains account ID and KV namespace IDs. Use `wrangler.toml.example` as the template.
 
+## Verifying frontend changes
+
+`src/assets/index.html` is untyped vanilla JS with no build step and no test suite — `npm run typecheck` only covers the `.ts` Worker files, not this file. A change here that "looks right" on inspection can still ship a silent runtime bug (this has happened: a bare `deviceId` reference in a click handler that threw on every valve tile tap went unnoticed until a headless-browser test surfaced it).
+
+**When a change touches click handlers, render logic (`renderTile()`, `renderCustomDashboard()`, `dynValueForDevice()`, etc.), or state tied to async config loading** (`boot()`, `applyServerConfig()`, anything gated on `cfg.hubBaseUrl`/`X-Hub-Id`), verify it end-to-end with a headless browser (Playwright) against local `wrangler dev` before calling the work done — don't rely on typecheck or a read-through alone. Route-mock `/api/hub/devices/all` (and any image URLs) rather than depending on a real hub; the app auto-opens Settings on boot when no hub is configured, so set a fake `#cfg-url`/`#cfg-app` first if the flow needs `X-Hub-Id` (most `/api/config` calls 400 without it). Remember the entire script is wrapped in an IIFE (`(() => { 'use strict'; ... })()`), so `page.evaluate()` cannot reach its internal variables or functions directly — drive everything through real DOM interactions (clicks, fills, selects) instead.
+
+**For low-risk changes — copy, CSS, docs, comments — skip the full Playwright pass.** A careful read-through is enough; spinning up a browser for a wording tweak just burns tokens on environment setup (fake hub config, route mocks, settings-modal state) rather than catching anything.
+
 ## Security model
 
 - **Auth**: Cloudflare Access in front of the Worker. Worker reads `CF-Access-Authenticated-User-Email`.
