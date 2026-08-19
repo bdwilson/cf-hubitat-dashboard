@@ -189,7 +189,27 @@ npx wrangler kv key get "{HUB-UID}:dashboard-config" --binding=CONFIG
 npx wrangler kv key get "{HUB-UID}:dynamic-config" --binding=CONFIG
 npx wrangler kv key get "{HUB-UID}:custom-dashboards" --binding=CONFIG
 npx wrangler kv key get registered-hub-id --binding=CONFIG
+npm run kv:backup    # dumps every CONFIG key to kv-backups/<timestamp>.json (see "KV backups" below)
+npm run kv:restore -- kv-backups/<file>.json [--key=<single-key>] [--yes]
 ```
+
+## KV backups
+
+A GitHub Action (`.github/workflows/kv-backup.yml`) runs nightly (09:00 UTC,
+also triggerable via `workflow_dispatch`), backs up every key in the CONFIG
+KV namespace to `kv-backups/<timestamp>.json`, and commits it if it changed —
+so config has a git history and survives a fresh deploy overwriting KV with
+default data (this happened once; the fix was recovering the previous config
+from a still-open browser tab's `localStorage` cache before it got cleared —
+not guaranteed to work twice). Uses the same `CLOUDFLARE_API_TOKEN`/
+`CLOUDFLARE_ACCOUNT_ID`/`KV_NAMESPACE_ID` repo secrets as `deploy.yml`; skips
+itself (no error) if `KV_NAMESPACE_ID` is unset, matching browser-only
+deployments that don't use KV at all.
+
+Restore with `npm run kv:restore -- kv-backups/<file>.json` — restores every
+key in the file by default, or pass `--key=<name>` for just one; prompts for
+confirmation unless `--yes` is passed. Writes directly to the live namespace
+the dashboard reads from, so treat it like any other production write.
 
 ## Dev workflow
 
@@ -198,7 +218,7 @@ npx wrangler kv key get registered-hub-id --binding=CONFIG
 ## Security model
 
 - **Auth**: Cloudflare Access in front of the Worker. Worker reads `CF-Access-Authenticated-User-Email`.
-- **Hub token**: lives in the browser's `localStorage` by default, sent per-request via the `X-Hub-Token` header — this is the normal flow, not a fallback. Never written to KV by the settings UI. KV-based storage (no token in any browser) is available as a CLI-only advanced option — see "Where the hub token actually lives" above.
+- **Hub token**: lives in the browser's `localStorage` by default, sent per-request via the `X-Hub-Token` header — this is the normal flow, not a fallback. Never written to KV by the settings UI. KV-based storage (no token in any browser) is available as a CLI-only advanced option — see "Where the hub token actually lives" above. This repo is public: `scripts/backup-kv.js` redacts `token` out of any `hub-connection` key before writing a backup, since that's the one KV value that can be a real credential (everything else — title, slots, layout, custom dashboards — has no secrets in it). `scripts/restore-kv.js` refuses to restore a redacted token over a live one — see "KV backups" above.
 - **CF Access service token** (optional): if `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` Worker secrets are set, they're injected as headers on every outbound request to the hub (both regular proxy calls and the WebSocket event stream) so the Worker can authenticate through a CF-Access-protected Cloudflare Tunnel. See `hub-proxy.ts`.
 - **Camera image URLs**: the Worker does NOT proxy camera images — the browser fetches them directly. If cameras are on LAN and dashboard is accessed via CF Access, snapshots won't load remotely. Known limitation. Options: (a) Cloudflare Tunnel for cameras, (b) add `/api/image-proxy?url=...` route.
 - **Rate limiting**: not enforced. Cloudflare's free tier rate limiting can be added separately.
@@ -234,7 +254,7 @@ npx wrangler kv key get registered-hub-id --binding=CONFIG
 - [x] ~~WebSocket via Cloudflare Tunnel for real-time updates~~ — **done.** `hubBaseUrl` is passed as a `?hubBaseUrl=` query param on the WS upgrade so browser-only mode works without KV; CF Access service token (`CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET`) is supported via `fetch()`+`Upgrade` header for tunnels behind CF Access. See `hub-proxy.ts`'s `handleWebSocketProxy()`.
 - [ ] Image proxy route so remote cameras work behind CF Access (`/api/image-proxy?url=...`)
 - [ ] Per-user config isolation (key KV by CF-Access user email)
-- [ ] Backup/snapshot of KV to git (scheduled GitHub Action)
+- [x] ~~Backup/snapshot of KV to git (scheduled GitHub Action)~~ — **done.** See "KV backups" above.
 - [x] ~~Custom URL link to the hub's native interface~~ — **done.** `hubExternalUrl` setting + "⎋" icon button on the status row (opens in a new tab; opens Settings when unset).
 - [x] ~~Customizable pill color for dashboard nav chips~~ — **done.** Two independent color pickers: `chipAccent` (Main + custom dashboards) and `chipAccentDynamic` (auto-generated dashboards).
 - [x] ~~Light/dark mode toggle + auto day/night mode~~ — **done.** `theme` setting (`auto`/`light`/`dark`, default auto = light 7am–7pm local); "◐" topbar button flips light/dark directly, `auto` selectable in Settings; light palette via `html[data-theme="light"]` CSS variable overrides.

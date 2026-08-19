@@ -9,7 +9,9 @@
     "tail": "wrangler tail",
     "typecheck": "tsc --noEmit",
     "kv:get-hub": "wrangler kv key get hub-connection --binding=CONFIG",
-    "kv:get-dashboard": "wrangler kv key get dashboard-config --binding=CONFIG"
+    "kv:get-dashboard": "wrangler kv key get dashboard-config --binding=CONFIG",
+    "kv:backup": "node scripts/backup-kv.js",
+    "kv:restore": "node scripts/restore-kv.js"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250101.0",
