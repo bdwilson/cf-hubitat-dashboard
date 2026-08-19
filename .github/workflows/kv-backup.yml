@@ -1,0 +1,79 @@
+name: Backup KV Config
+
+# Disabled by default — see the "Automated KV backups" section in README.md.
+#
+# This workflow commits a JSON dump of your KV config (dashboard layout, tile
+# labels, custom dashboards — hub token redacted, everything else in the
+# clear) to this repo on every run. That's fine for a private repo, but if
+# your fork is public, those commits are public too. It's kept here as a
+# working example for anyone who forks this repo and wants to use it, but it
+# will not run until you opt in:
+#
+#   1. Repo Settings → Secrets and variables → Actions → Variables tab
+#   2. Add a repository variable named KV_BACKUP_ENABLED with value: true
+#   3. Make sure your fork is private first if you don't want backup commits
+#      publicly visible (Settings → General → Danger Zone → Change visibility)
+#
+# The CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID/KV_NAMESPACE_ID secrets are
+# the same ones deploy.yml already uses — no separate secrets needed.
+#
+# Prefer not to touch this repo's git history at all, even privately? See
+# "Self-hosted backups" in the same README section for running the backup
+# script from your own machine/server instead — nothing gets committed.
+on:
+  schedule:
+    # 09:00 UTC nightly. Adjust for your timezone as needed.
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    if: ${{ vars.KV_BACKUP_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    name: Backup KV
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate wrangler.toml from secrets
+        run: |
+          sed \
+            -e 's/YOUR_CLOUDFLARE_ACCOUNT_ID/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/g' \
+            -e 's/YOUR_KV_NAMESPACE_ID/${{ secrets.KV_NAMESPACE_ID }}/g' \
+            -e 's/YOUR_KV_PREVIEW_NAMESPACE_ID/${{ secrets.KV_PREVIEW_NAMESPACE_ID }}/g' \
+            wrangler.toml.example > wrangler.toml
+
+      # Nothing to back up in browser-only (no-KV) deployments — skip rather
+      # than fail. Same condition deploy.yml uses to decide whether to strip
+      # the [[kv_namespaces]] block.
+      - name: Check KV is configured
+        id: kv-check
+        run: |
+          if [ "${{ secrets.KV_NAMESPACE_ID }}" = "none" ] || [ -z "${{ secrets.KV_NAMESPACE_ID }}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "KV_NAMESPACE_ID not set — this deployment uses browser-only (localStorage) mode. Nothing to back up."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Back up KV
+        if: steps.kv-check.outputs.configured == 'true'
+        run: node scripts/backup-kv.js
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Commit backup
+        if: steps.kv-check.outputs.configured == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add kv-backups/
+          if git diff --cached --quiet; then
+            echo "No changes to commit (backup identical to last run)."
+          else
+            git commit -m "Nightly KV backup $(date -u +%Y-%m-%d)"
+            git push
+          fi

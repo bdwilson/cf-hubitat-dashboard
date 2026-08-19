@@ -323,6 +323,100 @@ Now the tunnel is locked down — only your browser (via human login) and the Wo
 
 KV is the source of truth for dashboard layout when configured. Browser localStorage is used as a short-term cache for layout, and as the primary store for the hub token.
 
+### Automated KV backups
+
+If you're using KV, your dashboard layout, tile labels, and custom dashboards live there — and nowhere else, unless you back them up. A fresh deploy or a KV write gone wrong can overwrite it with defaults with no warning. Two ways to protect against that:
+
+#### Option 1 — GitHub Action (simplest, but commits config to your repo)
+
+This repo includes `.github/workflows/kv-backup.yml`, which runs nightly and commits a timestamped JSON dump of your KV config to `kv-backups/` in the repo. It reuses the same `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`/`KV_NAMESPACE_ID` secrets you already set up for deployment — no extra credentials needed.
+
+**It's disabled by default** — it won't run just because you forked the repo. The hub token is always redacted before it's written, but everything else (tile labels, device IDs, custom dashboard names) is not, so this workflow commits real (if mundane) data about your setup to the repo it runs in. That's fine for a private repo; if your fork is public, those commits are public too.
+
+To enable it:
+
+1. **If your fork is public and you want this, make it private first**: repo **Settings → General → Danger Zone → Change repository visibility → Make private**
+2. Go to **Settings → Secrets and variables → Actions → Variables** tab (not Secrets — this one's a plain variable)
+3. Click **New repository variable**
+4. Name: `KV_BACKUP_ENABLED`, Value: `true`
+5. Save. The workflow now runs nightly (and you can trigger it manually anytime via **Actions → Backup KV Config → Run workflow**)
+
+To disable again later: delete the `KV_BACKUP_ENABLED` variable, or flip it to anything other than `true`.
+
+#### Option 2 — Self-hosted (recommended if you want to keep your fork public)
+
+Run the same backup script from your own machine, NAS, or home server instead. Nothing gets committed to any git repo — backups are just local JSON files you manage yourself.
+
+**Setup:**
+
+1. Get a copy of the scripts on the machine that will run the backup — easiest is cloning this repo there too:
+   ```bash
+   git clone https://github.com/YOUR-USERNAME/cf-hubitat-dashboard.git
+   cd cf-hubitat-dashboard
+   npm install
+   ```
+2. Create `wrangler.toml` (gitignored — never commit it) pointing at your **live production** KV namespace, using the same account ID and namespace ID from your deployment (see [Step 2](#step-2--create-your-kv-namespaces-in-cloudflare) and [Step 3](#step-3--get-your-cloudflare-account-id) above):
+   ```toml
+   name = "hubitat-dashboard"
+   account_id = "YOUR_ACCOUNT_ID"
+   [[kv_namespaces]]
+   binding = "CONFIG"
+   id = "YOUR_KV_NAMESPACE_ID"
+   ```
+3. Authenticate wrangler so it can read your KV namespace without a browser (needed for cron/unattended runs). Create a scoped API token rather than reusing your deploy token — narrower is safer for a credential that will sit unattended on another machine:
+   - Cloudflare dashboard → profile icon → **API Tokens** → **Create Token**
+   - **Create Custom Token** → permissions: **Account → Workers KV Storage → Edit**, scoped to your account
+   - Copy the token
+4. Test it manually:
+   ```bash
+   CLOUDFLARE_API_TOKEN=your-token-here npm run kv:backup
+   ```
+   This writes a timestamped JSON file to `kv-backups/` in your local checkout. Confirm it worked before scheduling it.
+5. Schedule it to run unattended. A few options depending on what the machine runs:
+
+   **cron** (Linux/macOS/most NAS boxes) — nightly at 3am, reading the token from a file only your user can read rather than embedding it in the crontab:
+   ```bash
+   # crontab -e
+   0 3 * * * cd /path/to/cf-hubitat-dashboard && . ./.backup-env && npm run kv:backup >> /var/log/hubitat-kv-backup.log 2>&1
+   ```
+   where `.backup-env` (`chmod 600`, gitignored) contains:
+   ```bash
+   export CLOUDFLARE_API_TOKEN=your-token-here
+   ```
+
+   **systemd timer** (Linux server) — `/etc/systemd/system/hubitat-kv-backup.service`:
+   ```ini
+   [Unit]
+   Description=Backup Hubitat dashboard KV config
+
+   [Service]
+   Type=oneshot
+   WorkingDirectory=/path/to/cf-hubitat-dashboard
+   EnvironmentFile=/path/to/cf-hubitat-dashboard/.backup-env
+   ExecStart=/usr/bin/npm run kv:backup
+   ```
+   and `/etc/systemd/system/hubitat-kv-backup.timer`:
+   ```ini
+   [Unit]
+   Description=Nightly Hubitat KV backup
+
+   [Timer]
+   OnCalendar=*-*-* 03:00:00
+   Persistent=true
+
+   [Install]
+   WantedBy=timers.target
+   ```
+   Enable with `sudo systemctl enable --now hubitat-kv-backup.timer`.
+
+   **macOS (launchd)** — a `~/Library/LaunchAgents/com.you.hubitat-kv-backup.plist` with a `StartCalendarInterval` key, `ProgramArguments` pointing at `npm run kv:backup`, and `WorkingDirectory` set to your checkout. Load with `launchctl load ~/Library/LaunchAgents/com.you.hubitat-kv-backup.plist`.
+
+   **Windows** — Task Scheduler → Create Basic Task → daily trigger → action: start a program, `npm.cmd`, arguments `run kv:backup`, "Start in" set to your checkout folder.
+
+6. Keep the backups somewhere durable — whatever you already use for that machine's backups (Time Machine, NAS RAID + snapshots, restic to cloud storage, etc.). Just don't push `kv-backups/` to a public git repo.
+
+Restore is the same either way: `npm run kv:restore -- kv-backups/<file>.json` — writes directly to the live namespace, so treat it like any other production write.
+
 ---
 
 ## Architecture

@@ -74,7 +74,7 @@ image | dashboard-link | text | water | valve | shade | thermostat | spacer | hi
 
 - **`bulb`**: dimmer/light. Tapping opens a level picker (25/50/75/100% + Off). Rendered with lightbulb icon + level %.
 - **`spacer`**: invisible placeholder tile for layout gaps. Shows a dashed outline in edit mode only.
-- **`image`**: Virtual Image device or static URL. Renders full-bleed with `<img>` + cache-busted URL. Tapping opens a lightbox. Works on both main dashboard and custom dashboards.
+- **`image`**: Virtual Image device or static URL. Renders full-bleed with `<img>` + cache-busted URL. Tapping opens a lightbox. Works on both main dashboard and custom dashboards. `imageFit` (`'cover'` default, or `'contain'`) is a per-tile setting in the tile editor controlling the `<img>`'s `object-fit`: `cover` fills the tile and crops overflow (best for camera feeds), `contain` shows the whole image letterboxed (best for charts/graphics with a fixed aspect ratio, e.g. a weather forecast screenshot that would otherwise get cropped on a narrow tile). Applied inline (not via CSS class) so it can update live without a full tile rebuild — see the `imgEl.style.objectFit` line in `renderTile()` and the inline `style="object-fit:..."` in `renderCustomDashboard()`.
 - **`text`**: shows an arbitrary device attribute as text. Attribute is configurable in the tile editor.
 - **`thermostat`**: shows current temperature + a mode icon (fire/snowflake/thermostat) on the tile, with the active setpoint as a small badge. Tapping opens `showThermostatPicker()` — a control modal (`#thermostat-modal`) with heat/cool setpoint steppers (±1°, sent via `setHeatingSetpoint`/`setCoolingSetpoint`), a mode picker (`setThermostatMode`), and — when the device reports `supportedThermostatFanModes` — a fan mode picker (`setThermostatFanMode`). The modal stays open and re-renders in place after each command (`renderThermostatBody()`) rather than closing, so multiple adjustments don't require reopening it. Mode/fan buttons are filtered to what the device actually supports via `supportedThermostatModes`/`supportedThermostatFanModes` (JSON-array attribute strings), falling back to a default mode list if absent. Detected in `dynKindForDevice()` via the `Thermostat` capability or a `thermostatMode` attribute; auto-added to the "Thermostats" dynamic dashboard group.
 
@@ -189,7 +189,43 @@ npx wrangler kv key get "{HUB-UID}:dashboard-config" --binding=CONFIG
 npx wrangler kv key get "{HUB-UID}:dynamic-config" --binding=CONFIG
 npx wrangler kv key get "{HUB-UID}:custom-dashboards" --binding=CONFIG
 npx wrangler kv key get registered-hub-id --binding=CONFIG
+npm run kv:backup    # dumps every CONFIG key to kv-backups/<timestamp>.json (see "KV backups" below)
+npm run kv:restore -- kv-backups/<file>.json [--key=<single-key>] [--yes]
 ```
+
+## KV backups
+
+Config lives in KV, and a fresh deploy overwriting it with default data has
+happened once already (the fix was recovering the previous config from a
+still-open browser tab's `localStorage` cache before it got cleared — not
+guaranteed to work twice). Two ways to guard against that; see the
+"Automated KV backups" section in README.md for full end-user setup steps —
+this is the short version for future Claude sessions:
+
+**GitHub Action** (`.github/workflows/kv-backup.yml`): runs nightly (09:00
+UTC, also triggerable via `workflow_dispatch`), backs up every key in the
+CONFIG KV namespace to `kv-backups/<timestamp>.json`, and commits it if it
+changed. Uses the same `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`/
+`KV_NAMESPACE_ID` repo secrets as `deploy.yml`; skips itself (no error) if
+`KV_NAMESPACE_ID` is unset, matching browser-only deployments. **Gated off
+by default** — the job's `if: vars.KV_BACKUP_ENABLED == 'true'` condition
+means it never runs unless that repo variable is explicitly set, because
+committing config (even with the hub token redacted) to a public repo's git
+history isn't something to do silently. Kept in the repo as a working
+example; the maintainer's own live deployment does not have the variable
+set, so it stays inert here.
+
+**Self-hosted** (`scripts/backup-kv.js` run from your own machine/server via
+cron/systemd/launchd/Task Scheduler instead of GitHub Actions): identical
+script, same redaction behavior, but nothing ever touches this repo's git
+history — backups land as local JSON files wherever you point it. This is
+the option to point people at when they don't want to make their fork
+private just to use the GitHub Action. Documented in README.md.
+
+Restore with `npm run kv:restore -- kv-backups/<file>.json` — restores every
+key in the file by default, or pass `--key=<name>` for just one; prompts for
+confirmation unless `--yes` is passed. Writes directly to the live namespace
+the dashboard reads from, so treat it like any other production write.
 
 ## Dev workflow
 
@@ -198,7 +234,7 @@ npx wrangler kv key get registered-hub-id --binding=CONFIG
 ## Security model
 
 - **Auth**: Cloudflare Access in front of the Worker. Worker reads `CF-Access-Authenticated-User-Email`.
-- **Hub token**: lives in the browser's `localStorage` by default, sent per-request via the `X-Hub-Token` header — this is the normal flow, not a fallback. Never written to KV by the settings UI. KV-based storage (no token in any browser) is available as a CLI-only advanced option — see "Where the hub token actually lives" above.
+- **Hub token**: lives in the browser's `localStorage` by default, sent per-request via the `X-Hub-Token` header — this is the normal flow, not a fallback. Never written to KV by the settings UI. KV-based storage (no token in any browser) is available as a CLI-only advanced option — see "Where the hub token actually lives" above. This repo is public: `scripts/backup-kv.js` redacts `token` out of any `hub-connection` key before writing a backup, since that's the one KV value that can be a real credential (everything else — title, slots, layout, custom dashboards — has no secrets in it). `scripts/restore-kv.js` refuses to restore a redacted token over a live one — see "KV backups" above.
 - **CF Access service token** (optional): if `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` Worker secrets are set, they're injected as headers on every outbound request to the hub (both regular proxy calls and the WebSocket event stream) so the Worker can authenticate through a CF-Access-protected Cloudflare Tunnel. See `hub-proxy.ts`.
 - **Camera image URLs**: the Worker does NOT proxy camera images — the browser fetches them directly. If cameras are on LAN and dashboard is accessed via CF Access, snapshots won't load remotely. Known limitation. Options: (a) Cloudflare Tunnel for cameras, (b) add `/api/image-proxy?url=...` route.
 - **Rate limiting**: not enforced. Cloudflare's free tier rate limiting can be added separately.
@@ -234,7 +270,7 @@ npx wrangler kv key get registered-hub-id --binding=CONFIG
 - [x] ~~WebSocket via Cloudflare Tunnel for real-time updates~~ — **done.** `hubBaseUrl` is passed as a `?hubBaseUrl=` query param on the WS upgrade so browser-only mode works without KV; CF Access service token (`CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET`) is supported via `fetch()`+`Upgrade` header for tunnels behind CF Access. See `hub-proxy.ts`'s `handleWebSocketProxy()`.
 - [ ] Image proxy route so remote cameras work behind CF Access (`/api/image-proxy?url=...`)
 - [ ] Per-user config isolation (key KV by CF-Access user email)
-- [ ] Backup/snapshot of KV to git (scheduled GitHub Action)
+- [x] ~~Backup/snapshot of KV to git (scheduled GitHub Action)~~ — **done.** See "KV backups" above.
 - [x] ~~Custom URL link to the hub's native interface~~ — **done.** `hubExternalUrl` setting + "⎋" icon button on the status row (opens in a new tab; opens Settings when unset).
 - [x] ~~Customizable pill color for dashboard nav chips~~ — **done.** Two independent color pickers: `chipAccent` (Main + custom dashboards) and `chipAccentDynamic` (auto-generated dashboards).
 - [x] ~~Light/dark mode toggle + auto day/night mode~~ — **done.** `theme` setting (`auto`/`light`/`dark`, default auto = light 7am–7pm local); "◐" topbar button flips light/dark directly, `auto` selectable in Settings; light palette via `html[data-theme="light"]` CSS variable overrides.
