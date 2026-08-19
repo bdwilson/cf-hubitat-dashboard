@@ -3749,7 +3749,8 @@ function refreshCustomDashList() {
   list.innerHTML = Object.entries(customDashboards).map(([name, dash]) => {
     const selected = dash.gridCols || '';
     return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--tile-bg);border:1px solid var(--tile-border);border-radius:4px;flex-wrap:wrap">
-      <span style="flex:1;min-width:80px;font-size:13px">${escapeHtml(dash.title || name)}</span>
+      <input class="dash-title-input" data-dash-title="${name}" value="${escapeHtml(dash.title || name)}"
+        style="flex:1;min-width:80px;font-size:13px;background:var(--surface-2);border:1px solid var(--border-soft);color:var(--tile-text);padding:3px 6px;border-radius:3px" />
       <span style="font-size:11px;color:var(--tile-label)">#custom/${escapeHtml(name)}</span>
       <select class="dash-cols-sel" data-dash-cols="${name}"
         style="background:var(--surface-2);border:1px solid var(--border-soft);color:var(--tile-text);padding:3px 6px;border-radius:3px;font-size:12px">
@@ -3759,6 +3760,21 @@ function refreshCustomDashList() {
       <button class="btn sm danger" data-dash-delete="${name}">Delete</button>
     </div>`;
   }).join('') || '<div style="color:var(--text-dim);font-size:12px;padding:4px 0">No custom dashboards yet.</div>';
+
+  list.querySelectorAll('.dash-title-input').forEach(input => {
+    const commit = () => {
+      const n = input.dataset.dashTitle;
+      const val = input.value.trim() || n;
+      if (customDashboards[n].title === val) return;
+      customDashboards[n].title = val;
+      saveCustomDashboards();
+      if (currentView === `custom/${n}`) renderCustomDashboard(n);
+    };
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { input.blur(); }
+    });
+  });
 
   // Set current gridCols selection
   list.querySelectorAll('.dash-cols-sel').forEach(sel => {
