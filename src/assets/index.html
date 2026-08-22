@@ -1549,7 +1549,11 @@ async function api(path) {
   const fullUrl = hubPath(path);
   const headers = hubProxyHeaders();
   let r;
-  try { r = await fetch(fullUrl, { credentials: 'same-origin', headers }); }
+  // Device state must always be fresh — the Worker already sends
+  // Cache-Control: no-store, but iOS Safari (particularly in standalone/
+  // home-screen PWA mode) has a history of serving disk-cached fetch()
+  // responses despite that header, so ask explicitly too.
+  try { r = await fetch(fullUrl, { credentials: 'same-origin', headers, cache: 'no-store' }); }
   catch (netErr) { throw new Error(`Network error fetching ${fullUrl} — ${netErr.message}`); }
   if (!r.ok) {
     const body = await r.text().catch(() => '');
@@ -2315,7 +2319,13 @@ function updateSectionVisibility() {
 // ── Tile interaction ──────────────────────────────────────────────────────────
 
 async function onTileClick(e) {
-  const slotId = e.currentTarget.dataset.slot;
+  // Capture the tile element now — e.currentTarget is nulled out by the
+  // browser once the synchronous dispatch phase ends, which for an async
+  // handler is as soon as the first `await` below is reached. Using
+  // e.currentTarget later (e.g. in the catch block) throws instead of
+  // flashing the tile red, silently skipping whatever runs after it.
+  const tileEl = e.currentTarget;
+  const slotId = tileEl.dataset.slot;
 
   // Ignore clicks on remove (×) and resize handle — they have their own handlers
   if (e.target.closest('.tile-remove') || e.target.closest('.resize-handle')) return;
@@ -2350,6 +2360,7 @@ async function onTileClick(e) {
           const ok = await showConfirm(`Turn ${s.label || 'switch'} ${action}?`);
           if (!ok) return;
         }
+        applyDeviceAttrUpdate(s.deviceId, 'switch', action); // instant feedback — corrected by the refresh below if the command actually fails
         await sendCommand(s.deviceId, action);
         break;
       }
@@ -2367,19 +2378,21 @@ async function onTileClick(e) {
           const ok = await showConfirm(`${lockAction === 'unlock' ? 'Unlock' : 'Lock'} ${s.label || 'door'}?`);
           if (!ok) return;
         }
+        applyDeviceAttrUpdate(s.deviceId, 'lock', lockAction === 'lock' ? 'locked' : 'unlocked');
         await sendCommand(s.deviceId, lockAction);
         break;
       }
       case 'garage': {
         if (!d) { openTileEditor(slotId); return; }
-        const door = getAttr(d, 'door') || getAttr(d, 'contact');
-        const isOpen = door === 'open' || door === 'opening';
+        const doorAttr = getAttr(d, 'door') !== undefined ? 'door' : 'contact';
+        const isOpen = getAttr(d, doorAttr) === 'open' || getAttr(d, doorAttr) === 'opening';
         const garageAction = isOpen ? 'close' : 'open';
         // requireConfirm defaults to true for garages (safety-critical)
         if (s.requireConfirm !== false) {
           const ok = await showConfirm(`${isOpen ? 'Close' : 'Open'} ${s.label || 'garage'}?`);
           if (!ok) return;
         }
+        applyDeviceAttrUpdate(s.deviceId, doorAttr, isOpen ? 'closed' : 'open');
         await sendCommand(s.deviceId, garageAction);
         break;
       }
@@ -2422,6 +2435,7 @@ async function onTileClick(e) {
           const ok = await showConfirm(`${isOpen ? 'Close' : 'Open'} ${s.label || 'valve'}?`);
           if (!ok) return;
         }
+        applyDeviceAttrUpdate(s.deviceId, 'valve', isOpen ? 'closed' : 'open');
         await sendCommand(s.deviceId, valveAction);
         break;
       }
@@ -2448,7 +2462,12 @@ async function onTileClick(e) {
     setTimeout(refreshAll, 400);
   } catch (err) {
     console.error('Command failed', err);
-    flashErr(e.currentTarget);
+    // A failed command may leave the optimistic tile update above showing the
+    // wrong state — resync from the hub rather than leaving it stuck wrong.
+    // Do this before flashErr: flashErr touches the tile element and must
+    // never be allowed to throw and skip the resync.
+    setTimeout(refreshAll, 400);
+    flashErr(tileEl);
   }
 }
 
@@ -3266,18 +3285,21 @@ async function onDynTileClick(deviceId, groupKey) {
       return;
     } else if (kind === 'switch') {
       const on = getAttr(d,'switch') === 'on';
+      applyDeviceAttrUpdate(deviceId, 'switch', on ? 'off' : 'on');
       await sendCommand(deviceId, on ? 'off' : 'on');
     } else if (kind === 'lock') {
       const lk = getAttr(d,'lock');
       const lockAction = lk === 'locked' ? 'unlock' : 'lock';
       const ok = await showConfirm(`${lockAction === 'unlock' ? 'Unlock' : 'Lock'} ${d.label || d.name}?`);
       if (!ok) return;
+      applyDeviceAttrUpdate(deviceId, 'lock', lockAction === 'lock' ? 'locked' : 'unlocked');
       await sendCommand(deviceId, lockAction);
     } else if (kind === 'garage') {
-      const door = getAttr(d,'door') || getAttr(d,'contact');
-      const isOpen = door === 'open' || door === 'opening';
+      const doorAttr = getAttr(d, 'door') !== undefined ? 'door' : 'contact';
+      const isOpen = getAttr(d, doorAttr) === 'open' || getAttr(d, doorAttr) === 'opening';
       const ok = await showConfirm(`${isOpen ? 'Close' : 'Open'} ${d.label || d.name}?`);
       if (!ok) return;
+      applyDeviceAttrUpdate(deviceId, doorAttr, isOpen ? 'closed' : 'open');
       await sendCommand(deviceId, isOpen ? 'close' : 'open');
     } else if (kind === 'shade') {
       const shadePos = getAttr(d, 'windowShade');
@@ -3294,7 +3316,10 @@ async function onDynTileClick(deviceId, groupKey) {
       return;
     }
     setTimeout(() => { refreshAll(); renderDynamicDashboard(groupKey); }, 400);
-  } catch (err) { console.error('Dynamic tile command failed', err); }
+  } catch (err) {
+    console.error('Dynamic tile command failed', err);
+    setTimeout(() => { refreshAll(); renderDynamicDashboard(groupKey); }, 400);
+  }
 }
 
 function bindDynDragEvents(grid, key, deviceIdOrder) {
@@ -3546,6 +3571,7 @@ async function onCustomTileClick(e, dashName, slotId) {
         const ok = await showConfirm(`Turn ${tile.label || 'switch'} ${on ? 'off' : 'on'}?`);
         if (!ok) return;
       }
+      applyDeviceAttrUpdate(tile.deviceId, 'switch', on ? 'off' : 'on');
       await sendCommand(tile.deviceId, on ? 'off' : 'on');
     } else if (kind === 'lock') {
       const lk = getAttr(d,'lock');
@@ -3554,14 +3580,16 @@ async function onCustomTileClick(e, dashName, slotId) {
         const ok = await showConfirm(`${lockAction === 'unlock' ? 'Unlock' : 'Lock'} ${tile.label || 'door'}?`);
         if (!ok) return;
       }
+      applyDeviceAttrUpdate(tile.deviceId, 'lock', lockAction === 'lock' ? 'locked' : 'unlocked');
       await sendCommand(tile.deviceId, lockAction);
     } else if (kind === 'garage') {
-      const door = getAttr(d,'door') || getAttr(d,'contact');
-      const isOpen = door === 'open' || door === 'opening';
+      const doorAttr = getAttr(d, 'door') !== undefined ? 'door' : 'contact';
+      const isOpen = getAttr(d, doorAttr) === 'open' || getAttr(d, doorAttr) === 'opening';
       if (tile.requireConfirm !== false) {
         const ok = await showConfirm(`${isOpen ? 'Close' : 'Open'} ${tile.label || 'garage'}?`);
         if (!ok) return;
       }
+      applyDeviceAttrUpdate(tile.deviceId, doorAttr, isOpen ? 'closed' : 'open');
       await sendCommand(tile.deviceId, isOpen ? 'close' : 'open');
     } else if (kind === 'shade') {
       const shadePos = getAttr(d, 'windowShade');
@@ -3578,7 +3606,10 @@ async function onCustomTileClick(e, dashName, slotId) {
       return;
     }
     setTimeout(() => { refreshAll(); renderCustomDashboard(dashName); }, 400);
-  } catch (err) { console.error('Custom tile command failed', err); }
+  } catch (err) {
+    console.error('Custom tile command failed', err);
+    setTimeout(() => { refreshAll(); renderCustomDashboard(dashName); }, 400);
+  }
 }
 
 async function saveCustomDashboards() {
@@ -4376,6 +4407,17 @@ function startPolling() {
 function stopPolling() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 }
+// iOS throttles (and can fully suspend) setInterval/setTimeout timers for a
+// backgrounded PWA — a locked screen, switching apps, or just leaving it idle
+// — with no error or event of its own. The periodic poll above can silently
+// stop firing for minutes; tapping a tile right before that happens is
+// exactly the "why didn't this update" complaint (a manual pull-to-refresh
+// always "fixes" it because it's a fresh user-triggered fetch, not because
+// polling was actually working). Catch up immediately whenever the page is
+// looked at again rather than waiting for the next tick that may not come.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') refreshAll(true);
+});
 
 // WebSocket mode only patches attribute values on devices already known at
 // connect time (see handleHubEvent) — it never adds newly-created devices to
@@ -4456,24 +4498,20 @@ function setWsDot(live) {
   document.getElementById('ws-dot').classList.toggle('live', !!live);
 }
 
-function handleHubEvent(evt) {
-  // Hubitat eventsocket event shape:
-  // { source, name, value, displayName, deviceId, unit, type }
-  // source is 'DEVICE' on Cloud Maker API events; local /eventsocket may omit it.
-  // Only skip if source is explicitly something other than DEVICE (e.g. 'APP', 'LOCATION').
-  if (!evt || (evt.source && evt.source !== 'DEVICE')) return;
-  if (!evt.deviceId) return;
-  console.debug('[ws event]', evt.source ?? '(no source)', evt.name, evt.value, 'deviceId:', evt.deviceId);
-
-  const deviceId = String(evt.deviceId);
-  const device   = devices.find(d => String(d.id) === deviceId);
+// Patches a device attribute in the local `devices` array and re-renders
+// whatever's currently showing it — shared by real WebSocket events
+// (handleHubEvent) and by optimistic tap-time updates (onTileClick etc.),
+// so a tile flips immediately on tap instead of waiting on a network
+// round-trip + the follow-up refreshAll() to reflect the new state.
+function applyDeviceAttrUpdate(deviceId, name, value) {
+  deviceId = String(deviceId);
+  const device = devices.find(d => String(d.id) === deviceId);
   if (!device) return;
 
-  // Patch the device attribute in-place
   if (Array.isArray(device.attributes)) {
-    const attr = device.attributes.find(a => a.name === evt.name);
-    if (attr) attr.currentValue = evt.value;
-    else device.attributes.push({ name: evt.name, currentValue: evt.value });
+    const attr = device.attributes.find(a => a.name === name);
+    if (attr) attr.currentValue = value;
+    else device.attributes.push({ name, currentValue: value });
   }
 
   // Re-render any main-dashboard tiles using this device
@@ -4482,7 +4520,7 @@ function handleHubEvent(evt) {
   }
 
   // Update status bar if a presence attribute changed
-  if (evt.name === 'presence') updateStatusBar();
+  if (name === 'presence') updateStatusBar();
 
   // Update dynamic/custom views if visible
   if (currentView.startsWith('dynamic/')) {
@@ -4490,6 +4528,17 @@ function handleHubEvent(evt) {
   } else if (currentView.startsWith('custom/')) {
     renderCustomDashboard(currentView.replace('custom/', ''));
   }
+}
+
+function handleHubEvent(evt) {
+  // Hubitat eventsocket event shape:
+  // { source, name, value, displayName, deviceId, unit, type }
+  // source is 'DEVICE' on Cloud Maker API events; local /eventsocket may omit it.
+  // Only skip if source is explicitly something other than DEVICE (e.g. 'APP', 'LOCATION').
+  if (!evt || (evt.source && evt.source !== 'DEVICE')) return;
+  if (!evt.deviceId) return;
+  console.debug('[ws event]', evt.source ?? '(no source)', evt.name, evt.value, 'deviceId:', evt.deviceId);
+  applyDeviceAttrUpdate(evt.deviceId, evt.name, evt.value);
 }
 
 // ── Settings modal ────────────────────────────────────────────────────────────

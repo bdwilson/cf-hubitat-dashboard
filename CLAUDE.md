@@ -93,6 +93,13 @@ For Hubitat Cloud Maker API the base URL is `https://cloud.hubitat.com/api/{hub-
 
 Browser side (`index.html`): `connectWebSocket()` opens the socket on boot (after hub creds are confirmed) and again after a successful save of hub connection settings. The `#ws-dot` element in the topbar reflects live/polling state. Polling (`pollSec`, default 5s) always keeps running as a safety net even when the WebSocket is connected — don't remove the polling fallback when touching this code; cloud-hosted hubs depend on it entirely. `startDeviceListSync()` additionally re-fetches the full device list every 5 minutes, because `handleHubEvent()` only patches attributes of already-known devices — without it, devices added on the hub mid-session never appear until reload.
 
+### Optimistic tile updates + visibility-triggered catch-up
+Tapping a switch/lock/garage/valve (direct-toggle path, not the timer/picker flows) patches the tapped device's attribute in the local `devices` array and re-renders immediately via `applyDeviceAttrUpdate(deviceId, attrName, value)` — *before* `sendCommand()` is awaited — so the tile flips state instantly instead of waiting on a full network round-trip. The existing `setTimeout(refreshAll, 400)` afterward reconciles with the hub's real state either way; on a command failure the `catch` block does the same corrective `refreshAll` (before `flashErr`, not after — see gotcha below) so a wrong optimistic flip doesn't linger. `applyDeviceAttrUpdate()` is shared with `handleHubEvent()` (real WebSocket events use the same patch-and-rerender path), defined once and used by all three tile-click handlers (`onTileClick`, `onDynTileClick`, `onCustomTileClick`).
+
+Separately, `document.addEventListener('visibilitychange', ...)` forces an immediate `refreshAll(true)` whenever the tab/PWA becomes visible again. iOS throttles (and can fully suspend) `setInterval`/`setTimeout` timers for a backgrounded PWA with no error of its own — the periodic poll can silently stop firing for minutes, which is what actually causes the "I have to pull-to-refresh to see it updated" complaint (pull-to-refresh isn't special, it's just a fresh user-triggered fetch when the stalled timer isn't). This is why `api()`'s `fetch()` also explicitly passes `cache: 'no-store'`, belt-and-suspenders alongside the Worker's own `Cache-Control: no-store` header, since iOS Safari has a history of serving disk-cached fetch responses in standalone/home-screen mode regardless of response headers.
+
+**Gotcha**: `e.currentTarget` inside an `async` event handler is only valid during the synchronous dispatch phase — once the handler crosses its first `await`, the browser nulls it out. `onTileClick` captures `const tileEl = e.currentTarget` on the very first line for this reason; using `e.currentTarget` later (e.g. in a `catch` block after multiple `await`s) throws instead of doing what you meant, silently skipping whatever code follows it in that block.
+
 ### KV keys
 
 All config keys are prefixed with the hub ID (`{hubId}:key`). The hub ID is
@@ -230,6 +237,14 @@ the dashboard reads from, so treat it like any other production write.
 ## Dev workflow
 
 `npm run dev` runs miniflare locally. For HTML/JS changes: edit `src/assets/index.html`, refresh browser, done. No build step. For Worker changes: `npm run dev` hot-reloads. **Do not commit `.dev.vars`** — gitignored. **Do not commit `wrangler.toml`** — gitignored; contains account ID and KV namespace IDs. Use `wrangler.toml.example` as the template.
+
+## Verifying frontend changes
+
+`src/assets/index.html` is untyped vanilla JS with no build step and no test suite — `npm run typecheck` only covers the `.ts` Worker files, not this file. A change here that "looks right" on inspection can still ship a silent runtime bug (this has happened: a bare `deviceId` reference in a click handler that threw on every valve tile tap went unnoticed until a headless-browser test surfaced it).
+
+**When a change touches click handlers, render logic (`renderTile()`, `renderCustomDashboard()`, `dynValueForDevice()`, etc.), or state tied to async config loading** (`boot()`, `applyServerConfig()`, anything gated on `cfg.hubBaseUrl`/`X-Hub-Id`), verify it end-to-end with a headless browser (Playwright) against local `wrangler dev` before calling the work done — don't rely on typecheck or a read-through alone. Route-mock `/api/hub/devices/all` (and any image URLs) rather than depending on a real hub; the app auto-opens Settings on boot when no hub is configured, so set a fake `#cfg-url`/`#cfg-app` first if the flow needs `X-Hub-Id` (most `/api/config` calls 400 without it). Remember the entire script is wrapped in an IIFE (`(() => { 'use strict'; ... })()`), so `page.evaluate()` cannot reach its internal variables or functions directly — drive everything through real DOM interactions (clicks, fills, selects) instead.
+
+**For low-risk changes — copy, CSS, docs, comments — skip the full Playwright pass.** A careful read-through is enough; spinning up a browser for a wording tweak just burns tokens on environment setup (fake hub config, route mocks, settings-modal state) rather than catching anything.
 
 ## Security model
 
