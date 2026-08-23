@@ -92,6 +92,7 @@ export type SlotKind =
   | 'valve'
   | 'shade'
   | 'thermostat'
+  | 'momentary'
   | 'spacer'
   | 'hidden';
 

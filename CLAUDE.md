@@ -69,7 +69,7 @@ All valid kinds are the union type in `src/types.ts`:
 
 ```
 switch | bulb | lock | garage | contact | presence | mode | hsm
-image | dashboard-link | text | water | valve | shade | thermostat | spacer | hidden
+image | dashboard-link | text | water | valve | shade | thermostat | momentary | spacer | hidden
 ```
 
 - **`bulb`**: dimmer/light. Tapping opens a level picker (25/50/75/100% + Off). Rendered with lightbulb icon + level %.
@@ -77,6 +77,7 @@ image | dashboard-link | text | water | valve | shade | thermostat | spacer | hi
 - **`image`**: Virtual Image device or static URL. Renders full-bleed with `<img>` + cache-busted URL. Tapping opens a lightbox. Works on both main dashboard and custom dashboards. `imageFit` (`'cover'` default, or `'contain'`) is a per-tile setting in the tile editor controlling the `<img>`'s `object-fit`: `cover` fills the tile and crops overflow (best for camera feeds), `contain` shows the whole image letterboxed (best for charts/graphics with a fixed aspect ratio, e.g. a weather forecast screenshot that would otherwise get cropped on a narrow tile). Applied inline (not via CSS class) so it can update live without a full tile rebuild — see the `imgEl.style.objectFit` line in `renderTile()` and the inline `style="object-fit:..."` in `renderCustomDashboard()`.
 - **`text`**: shows an arbitrary device attribute as text. Attribute is configurable in the tile editor.
 - **`thermostat`**: shows current temperature + a mode icon (fire/snowflake/thermostat) on the tile, with the active setpoint as a small badge. Tapping opens `showThermostatPicker()` — a control modal (`#thermostat-modal`) with heat/cool setpoint steppers (±1°, sent via `setHeatingSetpoint`/`setCoolingSetpoint`), a mode picker (`setThermostatMode`), and — when the device reports `supportedThermostatFanModes` — a fan mode picker (`setThermostatFanMode`). The modal stays open and re-renders in place after each command (`renderThermostatBody()`) rather than closing, so multiple adjustments don't require reopening it. Mode/fan buttons are filtered to what the device actually supports via `supportedThermostatModes`/`supportedThermostatFanModes` (JSON-array attribute strings), falling back to a default mode list if absent. Detected in `dynKindForDevice()` via the `Thermostat` capability or a `thermostatMode` attribute; auto-added to the "Thermostats" dynamic dashboard group.
+- **`momentary`**: for devices exposing Hubitat's `Momentary` capability (a single `push()` command, no persistent attribute) — e.g. a virtual button wired to a custom automation/scene. Tapping sends `push` immediately and flashes the tile via `flashPressed()` (blue outline, 300ms) as the only feedback, since there's nothing to reconcile via `refreshAll()` — the tile never gets an `active` class and `setTimeout(refreshAll, 400)` is skipped after a successful press (contrast with switch/lock/garage/valve, which do run it). `requireConfirm` is supported (opt-in, unlike lock/garage where it defaults on) since a button press isn't inherently safety-critical. Detected in `dynKindForDevice()` via the `Momentary` capability alone (no attribute fallback exists for it); auto-added to the "Buttons" dynamic dashboard group. Not to be confused with Hubitat's separate `PushableButton` capability (multi-numbered-button devices like Pico remotes) — that's a different capability with a `push(buttonNumber)` command and isn't what this kind targets.
 
 Each kind has a render branch in `renderTile()` (main dashboard), `dynValueForDevice()` (dynamic dashboards), and `renderCustomDashboard()` (custom dashboards). Click handlers: `onTileClick()`, `onDynTileClick()`, `onCustomTileClick()`.
 
@@ -125,7 +126,7 @@ migrates it automatically. No manual step required.
 **Never rename the `registered-hub-id` key or the `{hubId}:` prefix scheme.**
 
 ### Dynamic dashboards
-Auto-generated from Hubitat device capabilities. Eight groups:
+Auto-generated from Hubitat device capabilities. Nine groups:
 
 ```js
 const DYNAMIC_GROUPS = [
@@ -137,6 +138,7 @@ const DYNAMIC_GROUPS = [
   { key:'contact',  label:'Contact Sensors', match: d => dynKindForDevice(d) === 'contact' },
   { key:'shades',   label:'Shades',          match: d => dynKindForDevice(d) === 'shade' },
   { key:'thermostats', label:'Thermostats',  match: d => dynKindForDevice(d) === 'thermostat' },
+  { key:'buttons',  label:'Buttons',         match: d => dynKindForDevice(d) === 'momentary' },
 ];
 ```
 

@@ -8,7 +8,7 @@ Smartly-style replacement dashboard for Hubitat Elevation, hosted on Cloudflare 
 
 ## Features
 
-- Tile types: switches, dimmers/bulbs (with a level picker), locks, garage doors, contact sensors, presence, water sensors, valves (with optional timed-open), window shades, Hubitat Mode, HSM/alarm status, Virtual Image devices, dashboard/URL links, read-only attribute text, and spacers for layout gaps
+- Tile types: switches, dimmers/bulbs (with a level picker), locks, garage doors, contact sensors, presence, water sensors, valves (with optional timed-open), window shades, thermostats, momentary buttons (custom `push` devices), Hubitat Mode, HSM/alarm status, Virtual Image devices, dashboard/URL links, read-only attribute text, and spacers for layout gaps
 - Mode and HSM never cycle on tap — both open a picker modal, so you can't accidentally arm/disarm or change modes with a stray tap
 - 100+ built-in icons with a searchable picker — every tile type can have its icon swapped, and binary-state tiles (switches, locks, garage, valves, shades) support separate icons for each state (e.g. a different icon for locked vs. unlocked)
 - Auto-generated dashboards — point it at your Maker API and it automatically builds grouped views (Switches, Lights, Locks, Battery, Presence, Contact Sensors, Shades) from your existing devices, no manual tile setup required
