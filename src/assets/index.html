@@ -998,6 +998,13 @@
         <span style="font-size:11px;color:var(--tile-label);margin-left:4px">(for drivers like Device Watchdog that emit HTML-formatted reports)</span>
       </label>
     </div>
+    <div class="form-row" id="te-command-row" style="display:none">
+      <label>Command to send <span id="te-command-hint" style="font-size:11px;color:var(--tile-label)"></span></label>
+      <input id="te-command" list="te-command-list" placeholder="push" autocomplete="off" />
+      <datalist id="te-command-list"></datalist>
+      <label style="margin-top:6px; font-size:12px">Argument (optional)</label>
+      <input id="te-command-arg" placeholder="e.g. a room name, a level — only if the command needs one" autocomplete="off" />
+    </div>
     <div class="form-row" id="te-url-row" style="display:none">
       <label>Link URL (use <code>#dynamic/switches</code>, <code>#custom/name</code>, or any URL)</label>
       <input id="te-url" placeholder="#dynamic/switches" />
@@ -1585,6 +1592,14 @@ function getAttr(device, name) {
 function hasCapability(device, cap) {
   if (!device || !device.capabilities) return false;
   return device.capabilities.some(c => typeof c === 'string' ? c === cap : false);
+}
+// Maker API lists each device's available custom commands (name only — it
+// doesn't expose argument types/constraints, so a momentary tile only offers
+// one free-text argument, matching the one optional path segment the Maker
+// API command endpoint itself supports).
+function deviceCommands(device) {
+  if (!device || !Array.isArray(device.commands)) return [];
+  return device.commands.map(c => typeof c === 'string' ? c : c.command).filter(Boolean);
 }
 
 // ── Thermostat helpers ────────────────────────────────────────────────────────
@@ -2248,7 +2263,7 @@ function renderTile(slotId, force) {
     case 'momentary': {
       if (!s.deviceId) { el.classList.add('unmapped'); break; }
       // Stateless — no attribute to reflect, so never gets an 'active' class.
-      if (valueEl) valueEl.innerHTML = `${iconSvg(s.icon || 'push-button')}<span>Press</span>`;
+      if (valueEl) valueEl.innerHTML = `${iconSvg(s.icon || 'push-button')}<span>${escapeHtml(s.command || 'Press')}</span>`;
       break;
     }
     case 'text': {
@@ -2469,11 +2484,11 @@ async function onTileClick(e) {
       case 'momentary': {
         if (!d) { openTileEditor(slotId); return; }
         if (s.requireConfirm) {
-          const ok = await showConfirm(`Press ${s.label || 'button'}?`);
+          const ok = await showConfirm(`Send "${s.command || 'push'}" to ${s.label || 'button'}?`);
           if (!ok) return;
         }
         flashPressed(tileEl); // only feedback available — there's no attribute to reflect
-        await sendCommand(s.deviceId, 'push');
+        await sendCommand(s.deviceId, s.command || 'push', s.commandArg || undefined);
         return;
       }
       default: openTileEditor(slotId); return;
@@ -3276,7 +3291,7 @@ function dynValueForDevice(d, kind, tile = {}) {
     }
     case 'momentary':
       // Stateless — no attribute to reflect.
-      return `${iconSvg(tile.icon || 'push-button')}<span>Press</span>`;
+      return `${iconSvg(tile.icon || 'push-button')}<span>${escapeHtml(tile.command || 'Press')}</span>`;
     default: {
       const batt = getAttr(d,'battery');
       return batt != null ? `${batt}%` : '';
@@ -3647,11 +3662,11 @@ async function onCustomTileClick(e, dashName, slotId) {
       return;
     } else if (kind === 'momentary') {
       if (tile.requireConfirm) {
-        const ok = await showConfirm(`Press ${tile.label || 'button'}?`);
+        const ok = await showConfirm(`Send "${tile.command || 'push'}" to ${tile.label || 'button'}?`);
         if (!ok) return;
       }
       if (tileEl) flashPressed(tileEl); // only feedback available — there's no attribute to reflect
-      await sendCommand(tile.deviceId, 'push');
+      await sendCommand(tile.deviceId, tile.command || 'push', tile.commandArg || undefined);
       return;
     }
     setTimeout(() => { refreshAll(); renderCustomDashboard(dashName); }, 400);
@@ -3788,6 +3803,7 @@ function openCustomTileEditor(dashName, slotId) {
   document.getElementById('te-render-html').checked       = !!tile.renderHtml;
   document.getElementById('te-image-orient').value        = tile.imageOrientation || 'landscape';
   document.getElementById('te-image-fit').value            = tile.imageFit || 'cover';
+  document.getElementById('te-command-arg').value          = tile.commandArg || '';
   document.getElementById('te-col-span').value            = String(tile.colSpan ?? 1);
   document.getElementById('te-row-span').value            = String(tile.rowSpan || 1);
   document.getElementById('te-icon').value                = tile.icon    || '';
@@ -3799,6 +3815,7 @@ function openCustomTileEditor(dashName, slotId) {
   populateDeviceDropdown(tile.kind, tile.deviceId);
   syncTileEditorVisibility();
   if (tile.kind === 'text') populateAttrDropdown(tile.attribute || '');
+  if (tile.kind === 'momentary') populateCommandDropdown(tile.command || '');
   tileEditor.classList.add('open');
 }
 
@@ -4022,6 +4039,7 @@ function openTileEditor(slotId) {
   document.getElementById('te-render-html').checked      = !!s.renderHtml;
   document.getElementById('te-image-orient').value       = s.imageOrientation || 'landscape';
   document.getElementById('te-image-fit').value           = s.imageFit || 'cover';
+  document.getElementById('te-command-arg').value         = s.commandArg || '';
   document.getElementById('te-col-span').value           = String(s.colSpan ?? 1);
   document.getElementById('te-row-span').value           = String(s.rowSpan || 1);
   document.getElementById('te-icon').value               = s.icon    || '';
@@ -4033,6 +4051,7 @@ function openTileEditor(slotId) {
   populateDeviceDropdown(s.kind, s.deviceId);
   syncTileEditorVisibility();
   if (s.kind === 'text') populateAttrDropdown(s.attribute || '');
+  if (s.kind === 'momentary') populateCommandDropdown(s.command || '');
   tileEditor.classList.add('open');
 }
 
@@ -4094,6 +4113,36 @@ function populateAttrDropdown(initialValue = '') {
   input.value = initialValue;
 }
 
+/**
+ * Populate the command autocomplete list from the currently-selected device's
+ * available commands (Maker API lists names only, no argument metadata), then
+ * set the input value. Works even if devices aren't loaded yet — the field
+ * stays free-text either way, since a device may accept a command Maker API
+ * doesn't happen to list, or the driver's command list may be stale.
+ */
+function populateCommandDropdown(initialValue = '') {
+  const input    = document.getElementById('te-command');
+  const datalist = document.getElementById('te-command-list');
+  const hint     = document.getElementById('te-command-hint');
+  if (!input || !datalist) return;
+
+  datalist.innerHTML = '';
+  const device = findDevice(document.getElementById('te-device').value);
+  const cmds = deviceCommands(device);
+  cmds.slice().sort().forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    datalist.appendChild(opt);
+  });
+  if (device) {
+    hint.textContent = cmds.length ? `(${cmds.length} commands available)` : '(device reports no commands — type one manually)';
+  } else {
+    hint.textContent = devices.length ? '(device not found)' : '(load devices first)';
+  }
+
+  input.value = initialValue;
+}
+
 // Kinds whose tiles render an icon (and so support a per-tile icon override)
 const ICON_ELIGIBLE_KINDS = ['switch','bulb','presence','lock','garage','water','valve','shade','thermostat','momentary'];
 
@@ -4113,6 +4162,7 @@ function syncTileEditorVisibility() {
   document.getElementById('te-device-row').style.display   = ['dashboard-link','hsm','mode','hidden','spacer'].includes(kind) ? 'none' : '';
   document.getElementById('te-url-row').style.display      = kind === 'dashboard-link' ? '' : 'none';
   document.getElementById('te-attr-row').style.display     = kind === 'text'           ? '' : 'none';
+  document.getElementById('te-command-row').style.display  = kind === 'momentary'      ? '' : 'none';
   // Confirmation available for switch, lock, and garage
   document.getElementById('te-confirm-row').style.display  = ['switch','lock','garage','momentary'].includes(kind) ? '' : 'none';
   // Valve timer available for valve kind
@@ -4206,16 +4256,20 @@ document.getElementById('te-kind').addEventListener('change', () => {
   populateDeviceDropdown(kind, currentDeviceId);
   syncTileEditorVisibility();
   if (kind === 'text') populateAttrDropdown('');
+  if (kind === 'momentary') populateCommandDropdown('');
 
   // Auto-set confirm for safety-critical kinds; never auto-clear it
   const confirmCb = document.getElementById('te-require-confirm');
   if (kind === 'lock' || kind === 'garage') confirmCb.checked = true;
 });
 
-// When device changes while kind=text, refresh the attribute list
+// When device changes while kind=text/momentary, refresh the suggestion list
 document.getElementById('te-device').addEventListener('change', () => {
-  if (document.getElementById('te-kind').value === 'text') {
+  const kind = document.getElementById('te-kind').value;
+  if (kind === 'text') {
     populateAttrDropdown(document.getElementById('te-attr').value);
+  } else if (kind === 'momentary') {
+    populateCommandDropdown(document.getElementById('te-command').value);
   }
 });
 
@@ -4250,6 +4304,10 @@ document.getElementById('te-save').addEventListener('click', () => {
         tile.imageOrientation = io === 'portrait' ? 'portrait' : undefined;
         const ifit = document.getElementById('te-image-fit').value;
         tile.imageFit = ifit === 'contain' ? 'contain' : undefined;
+        const cmd = document.getElementById('te-command').value.trim();
+        tile.command = cmd || undefined;
+        const cmdArg = document.getElementById('te-command-arg').value.trim();
+        tile.commandArg = cmdArg || undefined;
         const cs = parseFloat(document.getElementById('te-col-span').value) || 1;
         const rs = parseInt(document.getElementById('te-row-span').value, 10) || 1;
         if (cs > 1) tile.colSpan = cs; else delete tile.colSpan;
@@ -4288,6 +4346,8 @@ document.getElementById('te-save').addEventListener('click', () => {
   s.valveTimer       = document.getElementById('te-valve-timer').checked || undefined;
   s.imageOrientation = document.getElementById('te-image-orient').value === 'portrait' ? 'portrait' : undefined;
   s.imageFit         = document.getElementById('te-image-fit').value === 'contain' ? 'contain' : undefined;
+  s.command          = document.getElementById('te-command').value.trim() || undefined;
+  s.commandArg       = document.getElementById('te-command-arg').value.trim() || undefined;
   s.colSpan          = parseFloat(document.getElementById('te-col-span').value) || 1;
   s.rowSpan          = parseInt(document.getElementById('te-row-span').value, 10) || 1;
   if (s.colSpan === 1) delete s.colSpan;
@@ -4295,6 +4355,8 @@ document.getElementById('te-save').addEventListener('click', () => {
   if (!s.requireConfirm) delete s.requireConfirm;
   if (!s.imageOrientation) delete s.imageOrientation;
   if (!s.imageFit) delete s.imageFit;
+  if (!s.command) delete s.command;
+  if (!s.commandArg) delete s.commandArg;
   const icon = document.getElementById('te-icon').value;
   if (icon) s.icon = icon; else delete s.icon;
   const iconOn = document.getElementById('te-icon-on').value;

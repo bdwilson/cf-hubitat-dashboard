@@ -62,6 +62,10 @@ export interface SlotConfig {
   imageOrientation?: 'landscape' | 'portrait';
   /** How the image fills its tile box. 'cover' (default) fills the tile and crops overflow — best for camera feeds. 'contain' shows the whole image letterboxed — best for charts/graphics with a fixed aspect ratio. */
   imageFit?: 'cover' | 'contain';
+  /** For `momentary` kind: the Hubitat command to send (default 'push' if unset). Lets one device with many custom commands (e.g. a vacuum driver's cleanRoomSlot1/dock/pause/start) get a separate tile per command. */
+  command?: string;
+  /** For `momentary` kind: an optional single argument passed to `command` (Maker API's command endpoint only supports one). */
+  commandArg?: string;
   /** How many grid columns this tile spans (default 1; 0.5 = half column) */
   colSpan?: 0.5 | 1 | 2 | 3;
   /** How many grid rows this tile spans (default 1) */
@@ -146,6 +150,10 @@ export interface CustomTile {
   imageOrientation?: 'landscape' | 'portrait';
   /** How the image fills its tile box. 'cover' (default) fills the tile and crops overflow — best for camera feeds. 'contain' shows the whole image letterboxed — best for charts/graphics with a fixed aspect ratio. */
   imageFit?: 'cover' | 'contain';
+  /** For `momentary` kind: the Hubitat command to send (default 'push' if unset). */
+  command?: string;
+  /** For `momentary` kind: an optional single argument passed to `command` (Maker API's command endpoint only supports one). */
+  commandArg?: string;
 }
 
 /** A user-created custom dashboard */
