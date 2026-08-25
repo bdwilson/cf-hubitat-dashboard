@@ -1070,6 +1070,20 @@
         <span style="font-size:11px;color:var(--tile-label);margin-left:4px">(for timed-open valves)</span>
       </label>
     </div>
+    <div class="form-row" id="te-valve-cmd-row" style="display:none">
+      <label>Open command <span id="te-valve-open-hint" style="font-size:11px;color:var(--tile-label)"></span></label>
+      <input id="te-valve-open-cmd" list="te-valve-cmd-list" placeholder="open" autocomplete="off" />
+      <datalist id="te-valve-cmd-list"></datalist>
+      <label style="margin-top:6px">Close command</label>
+      <input id="te-valve-close-cmd" list="te-valve-cmd-list" placeholder="close" autocomplete="off" />
+      <div class="help" style="margin-top:4px; font-size:11px">
+        Defaults to the Valve capability's <code>open</code>/<code>close</code>. Change these if your
+        driver rejects them — some drivers can't accept a timed <code>open</code> because the Valve
+        capability already defines a no-argument <code>open</code>, and the hub returns a generic
+        "unexpected error". Pick a command the dropdown shows this device actually exposes.
+        With the timer picker on, the minutes are sent as the open command's argument.
+      </div>
+    </div>
     <div class="form-row" id="te-orient-row" style="display:none">
       <label>Image orientation</label>
       <select id="te-image-orient">
@@ -2450,11 +2464,11 @@ async function onTileClick(e) {
         // If timer is enabled, show duration picker instead of direct toggle
         if (s.valveTimer) {
           console.log('Showing valve timer picker');
-          showValveTimerPicker(s.deviceId, s.label, isOpen);
+          showValveTimerPicker(s.deviceId, s.label, isOpen, s.openCommand, s.closeCommand);
           return;
         }
         // Direct toggle
-        const valveAction = isOpen ? 'close' : 'open';
+        const valveAction = isOpen ? (s.closeCommand || 'close') : (s.openCommand || 'open');
         if (s.requireConfirm) {
           const ok = await showConfirm(`${isOpen ? 'Close' : 'Open'} ${s.label || 'valve'}?`);
           if (!ok) return;
@@ -2642,12 +2656,14 @@ function showHsmPicker() {
   });
 }
 
-async function showValveTimerPicker(deviceId, label, isCurrentlyOpen) {
+async function showValveTimerPicker(deviceId, label, isCurrentlyOpen, openCmd, closeCmd) {
   const modal = document.getElementById('valve-timer-modal');
   if (!modal) {
     console.error('Valve timer modal not found');
     return;
   }
+  const openCommand  = openCmd  || 'open';
+  const closeCommand = closeCmd || 'close';
   document.getElementById('valve-title').textContent = `${label || 'Valve'} - How long?`;
   modal.classList.add('open');
   console.log('Valve modal opened:', modal.classList);
@@ -2666,15 +2682,23 @@ async function showValveTimerPicker(deviceId, label, isCurrentlyOpen) {
       el.onclick = async () => {
         modal.classList.remove('open');
         try {
-          // /devices/{id}/open/{minutes} — the duration is REQUIRED here, not a nicety:
-          // per this device's driver, an open() call with no duration falls back to the
-          // parent's own (shorter) auto-off preference instead of staying open. Silently
-          // dropping the duration on failure would silently shorten the run, so on error
-          // we surface it instead of retrying without a duration.
-          await sendCommand(deviceId, 'open', String(minutes));
+          // /devices/{id}/{openCommand}/{minutes} — the duration is REQUIRED here, not a
+          // nicety: an open with no duration falls back to the device's own (shorter)
+          // auto-off preference instead of running the requested time. Silently dropping
+          // the duration on failure would silently shorten the run, so on error we
+          // surface it instead of retrying without a duration.
+          //
+          // openCommand is configurable per-tile because Maker API cannot reliably
+          // dispatch a *timed* open on drivers that declare `command 'open', ['number']`
+          // alongside `capability 'Valve'` (which already defines a no-argument open) —
+          // two commands share the name, and the hub answers with a generic
+          // "An unexpected error occurred." even though the same command works from the
+          // Hubitat device page. Point the tile at a distinctly-named driver command to
+          // avoid the collision.
+          await sendCommand(deviceId, openCommand, String(minutes));
         } catch (e) {
           console.error('Timed valve open failed:', e);
-          alert(`Failed to open ${label || 'valve'} for ${minutes} min: ${e.message || e}\n\nThe valve was NOT opened — retry, or open it directly in the Hubitat app.`);
+          alert(`Failed to open ${label || 'valve'} for ${minutes} min via "${openCommand}": ${e.message || e}\n\nThe valve was NOT opened — retry, or open it directly in the Hubitat app.\n\nIf this is an "unexpected error", the driver may not accept a timed "${openCommand}" through Maker API. Set a different Open command on this tile in Edit → tile settings.`);
           return;
         }
         setTimeout(refreshAll, 400);
@@ -2687,7 +2711,7 @@ async function showValveTimerPicker(deviceId, label, isCurrentlyOpen) {
   if (closeBtn) {
     closeBtn.onclick = async () => {
       modal.classList.remove('open');
-      await sendCommand(deviceId, 'close');
+      await sendCommand(deviceId, closeCommand);
       setTimeout(refreshAll, 400);
     };
   }
@@ -3655,7 +3679,7 @@ async function onCustomTileClick(e, dashName, slotId) {
       const v = getAttr(d, 'valve');
       const isOpen = v === 'open';
       // For custom dashboards, always show timer picker for valves
-      showValveTimerPicker(tile.deviceId, tile.label || (d && (d.label || d.name)) || tile.deviceId, isOpen);
+      showValveTimerPicker(tile.deviceId, tile.label || (d && (d.label || d.name)) || tile.deviceId, isOpen, tile.openCommand, tile.closeCommand);
       return;
     } else if (kind === 'thermostat') {
       showThermostatPicker(tile.deviceId, tile.label || (d && (d.label || d.name)) || tile.deviceId);
@@ -3816,6 +3840,7 @@ function openCustomTileEditor(dashName, slotId) {
   syncTileEditorVisibility();
   if (tile.kind === 'text') populateAttrDropdown(tile.attribute || '');
   if (tile.kind === 'momentary') populateCommandDropdown(tile.command || '');
+  if (tile.kind === 'valve') populateValveCommandDropdowns(tile.openCommand || '', tile.closeCommand || '');
   tileEditor.classList.add('open');
 }
 
@@ -4052,6 +4077,7 @@ function openTileEditor(slotId) {
   syncTileEditorVisibility();
   if (s.kind === 'text') populateAttrDropdown(s.attribute || '');
   if (s.kind === 'momentary') populateCommandDropdown(s.command || '');
+  if (s.kind === 'valve') populateValveCommandDropdowns(s.openCommand || '', s.closeCommand || '');
   tileEditor.classList.add('open');
 }
 
@@ -4143,6 +4169,44 @@ function populateCommandDropdown(initialValue = '') {
   input.value = initialValue;
 }
 
+/**
+ * Same idea as populateCommandDropdown(), for the valve tile's open/close
+ * command overrides. Both inputs share one datalist since they draw from the
+ * same device. Defaults are the Valve capability's own open/close; overriding
+ * exists because some drivers can't dispatch a *timed* open — the Valve
+ * capability already defines a no-argument open(), so declaring
+ * `command 'open', ['number']` alongside it collides and the hub returns a
+ * generic "An unexpected error occurred." for /devices/{id}/open/{minutes}.
+ * Pointing the tile at a distinctly-named command (e.g. openFor) sidesteps
+ * that without the dashboard having to guess at driver internals.
+ */
+function populateValveCommandDropdowns(openValue = '', closeValue = '') {
+  const openInput  = document.getElementById('te-valve-open-cmd');
+  const closeInput = document.getElementById('te-valve-close-cmd');
+  const datalist   = document.getElementById('te-valve-cmd-list');
+  const hint       = document.getElementById('te-valve-open-hint');
+  if (!openInput || !closeInput || !datalist) return;
+
+  datalist.innerHTML = '';
+  const device = findDevice(document.getElementById('te-device').value);
+  const cmds = deviceCommands(device);
+  cmds.slice().sort().forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    datalist.appendChild(opt);
+  });
+  if (hint) {
+    if (device) {
+      hint.textContent = cmds.length ? `(${cmds.length} commands available)` : '(device reports no commands — type one manually)';
+    } else {
+      hint.textContent = devices.length ? '(device not found)' : '(load devices first)';
+    }
+  }
+
+  openInput.value  = openValue;
+  closeInput.value = closeValue;
+}
+
 // Kinds whose tiles render an icon (and so support a per-tile icon override)
 const ICON_ELIGIBLE_KINDS = ['switch','bulb','presence','lock','garage','water','valve','shade','thermostat','momentary'];
 
@@ -4167,6 +4231,7 @@ function syncTileEditorVisibility() {
   document.getElementById('te-confirm-row').style.display  = ['switch','lock','garage','momentary'].includes(kind) ? '' : 'none';
   // Valve timer available for valve kind
   document.getElementById('te-valve-timer-row').style.display = kind === 'valve' ? '' : 'none';
+  document.getElementById('te-valve-cmd-row').style.display   = kind === 'valve' ? '' : 'none';
   document.getElementById('te-orient-row').style.display   = kind === 'image'          ? '' : 'none';
   document.getElementById('te-fit-row').style.display      = kind === 'image'          ? '' : 'none';
   document.getElementById('te-row-span-row').style.display = kind !== 'image'          ? '' : 'none';
@@ -4257,19 +4322,25 @@ document.getElementById('te-kind').addEventListener('change', () => {
   syncTileEditorVisibility();
   if (kind === 'text') populateAttrDropdown('');
   if (kind === 'momentary') populateCommandDropdown('');
+  if (kind === 'valve') populateValveCommandDropdowns('', '');
 
   // Auto-set confirm for safety-critical kinds; never auto-clear it
   const confirmCb = document.getElementById('te-require-confirm');
   if (kind === 'lock' || kind === 'garage') confirmCb.checked = true;
 });
 
-// When device changes while kind=text/momentary, refresh the suggestion list
+// When device changes while kind=text/momentary/valve, refresh the suggestion list
 document.getElementById('te-device').addEventListener('change', () => {
   const kind = document.getElementById('te-kind').value;
   if (kind === 'text') {
     populateAttrDropdown(document.getElementById('te-attr').value);
   } else if (kind === 'momentary') {
     populateCommandDropdown(document.getElementById('te-command').value);
+  } else if (kind === 'valve') {
+    populateValveCommandDropdowns(
+      document.getElementById('te-valve-open-cmd').value,
+      document.getElementById('te-valve-close-cmd').value,
+    );
   }
 });
 
@@ -4308,6 +4379,10 @@ document.getElementById('te-save').addEventListener('click', () => {
         tile.command = cmd || undefined;
         const cmdArg = document.getElementById('te-command-arg').value.trim();
         tile.commandArg = cmdArg || undefined;
+        const vOpen  = document.getElementById('te-valve-open-cmd').value.trim();
+        const vClose = document.getElementById('te-valve-close-cmd').value.trim();
+        tile.openCommand  = vOpen  || undefined;
+        tile.closeCommand = vClose || undefined;
         const cs = parseFloat(document.getElementById('te-col-span').value) || 1;
         const rs = parseInt(document.getElementById('te-row-span').value, 10) || 1;
         if (cs > 1) tile.colSpan = cs; else delete tile.colSpan;
@@ -4348,6 +4423,8 @@ document.getElementById('te-save').addEventListener('click', () => {
   s.imageFit         = document.getElementById('te-image-fit').value === 'contain' ? 'contain' : undefined;
   s.command          = document.getElementById('te-command').value.trim() || undefined;
   s.commandArg       = document.getElementById('te-command-arg').value.trim() || undefined;
+  s.openCommand      = document.getElementById('te-valve-open-cmd').value.trim() || undefined;
+  s.closeCommand     = document.getElementById('te-valve-close-cmd').value.trim() || undefined;
   s.colSpan          = parseFloat(document.getElementById('te-col-span').value) || 1;
   s.rowSpan          = parseInt(document.getElementById('te-row-span').value, 10) || 1;
   if (s.colSpan === 1) delete s.colSpan;
@@ -4357,6 +4434,8 @@ document.getElementById('te-save').addEventListener('click', () => {
   if (!s.imageFit) delete s.imageFit;
   if (!s.command) delete s.command;
   if (!s.commandArg) delete s.commandArg;
+  if (!s.openCommand) delete s.openCommand;
+  if (!s.closeCommand) delete s.closeCommand;
   const icon = document.getElementById('te-icon').value;
   if (icon) s.icon = icon; else delete s.icon;
   const iconOn = document.getElementById('te-icon-on').value;
