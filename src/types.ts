@@ -66,6 +66,10 @@ export interface SlotConfig {
   command?: string;
   /** For `momentary` kind: an optional single argument passed to `command` (Maker API's command endpoint only supports one). */
   commandArg?: string;
+  /** For `valve` kind: command sent to open (default 'open'). Overridable because Maker API cannot reliably dispatch a timed `open` on drivers that declare `command 'open', ['number']` alongside `capability 'Valve'` — the duplicate name makes the hub return a generic error even though the same command works from the Hubitat device page. */
+  openCommand?: string;
+  /** For `valve` kind: command sent to close (default 'close'). */
+  closeCommand?: string;
   /** How many grid columns this tile spans (default 1; 0.5 = half column) */
   colSpan?: 0.5 | 1 | 2 | 3;
   /** How many grid rows this tile spans (default 1) */
@@ -154,6 +158,10 @@ export interface CustomTile {
   command?: string;
   /** For `momentary` kind: an optional single argument passed to `command` (Maker API's command endpoint only supports one). */
   commandArg?: string;
+  /** For `valve` kind: command sent to open (default 'open'). Overridable because Maker API cannot reliably dispatch a timed `open` on drivers that declare `command 'open', ['number']` alongside `capability 'Valve'` — the duplicate name makes the hub return a generic error even though the same command works from the Hubitat device page. */
+  openCommand?: string;
+  /** For `valve` kind: command sent to close (default 'close'). */
+  closeCommand?: string;
 }
 
 /** A user-created custom dashboard */
