@@ -157,43 +157,58 @@ async function handleWebSocketProxy(req: Request, env: Env): Promise<Response> {
   }
 
   const cleanBase = baseUrl.replace(/\/+$/, '');
-  // fetch() only accepts http/https — NOT wss/ws. new WebSocket() is the opposite.
+  // fetch() only accepts http/https — NOT wss/ws.
   const hubFetchUrl = `${cleanBase}/eventsocket`;
-  const hubWsUrl   = hubFetchUrl.replace(/^https/, 'wss').replace(/^http(?!s)/, 'ws');
 
   const pair = new WebSocketPair();
   const [client, server] = [pair[0], pair[1]];
   server.accept();
 
-  console.log(`[ws] connecting to ${hubFetchUrl} (CF Access: ${!!(env.CF_ACCESS_CLIENT_ID && env.CF_ACCESS_CLIENT_SECRET)})`);
+  const hasAccessCreds = !!(env.CF_ACCESS_CLIENT_ID && env.CF_ACCESS_CLIENT_SECRET);
+  console.log(`[ws] connecting to ${hubFetchUrl} (CF Access: ${hasAccessCreds})`);
 
   let hubWs: WebSocket;
   try {
-    if (env.CF_ACCESS_CLIENT_ID && env.CF_ACCESS_CLIENT_SECRET) {
-      // Tunnel is protected by CF Access — use fetch() so we can send the
-      // service token headers (new WebSocket() doesn't support custom headers).
-      // fetch() requires https:// not wss:// for WebSocket upgrades.
-      const upgradeResp = await fetch(hubFetchUrl, {
-        headers: {
-          'Upgrade': 'websocket',
-          'CF-Access-Client-Id': env.CF_ACCESS_CLIENT_ID,
-          'CF-Access-Client-Secret': env.CF_ACCESS_CLIENT_SECRET,
-        },
-      });
-      const ws = upgradeResp.webSocket;
-      if (!ws) {
-        const text = await upgradeResp.text().catch(() => '');
-        throw new Error(`Hub did not upgrade to WebSocket (status ${upgradeResp.status}${text ? ': ' + text.substring(0, 100) : ''})`);
-      }
-      ws.accept();
-      hubWs = ws;
-    } else {
-      hubWs = new WebSocket(hubWsUrl);
+    // Always go through fetch()+Upgrade rather than `new WebSocket()`. Both work
+    // in Workers, but only fetch() exposes the upstream HTTP response when the
+    // upgrade is REFUSED — `new WebSocket()` just emits an opaque error event,
+    // which surfaced to users as a bare "Hub WebSocket error" with no way to
+    // tell a down hub from a tunnel sitting behind Cloudflare Access. fetch()
+    // also lets us attach the CF Access service-token headers, which the
+    // WebSocket constructor can't do at all.
+    const headers: Record<string, string> = { 'Upgrade': 'websocket' };
+    if (hasAccessCreds) {
+      headers['CF-Access-Client-Id']     = env.CF_ACCESS_CLIENT_ID!;
+      headers['CF-Access-Client-Secret'] = env.CF_ACCESS_CLIENT_SECRET!;
     }
+    // 'manual' so an Access login redirect is visible as a 302 instead of being
+    // followed into an HTML login page that just looks like a generic failure.
+    const upgradeResp = await fetch(hubFetchUrl, { headers, redirect: 'manual' });
+    const ws = upgradeResp.webSocket;
+    if (!ws) {
+      const status = upgradeResp.status;
+      // A tunnel behind CF Access answers an unauthenticated upgrade with a
+      // redirect to (or a 403 from) the Access login page. That's by far the
+      // most common cause of "real-time updates never work on a tunnel", so
+      // name the fix instead of reporting a generic failure.
+      const looksLikeAccess =
+        (status === 302 || status === 301 || status === 403) ||
+        !!upgradeResp.headers.get('location')?.includes('cloudflareaccess.com');
+      const hint = looksLikeAccess && !hasAccessCreds
+        ? ' — this looks like Cloudflare Access in front of your tunnel. Set the CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET Worker secrets (Zero Trust → Access → Service Auth → Service Tokens) and add that token as an Allow policy on the tunnel app.'
+        : '';
+      throw new Error(`hub refused the WebSocket upgrade (HTTP ${status})${hint}`);
+    }
+    ws.accept();
+    hubWs = ws;
   } catch (err) {
     const msg = `Could not connect to hub: ${err instanceof Error ? err.message : String(err)}`;
+    // Full detail goes to the Worker log (`wrangler tail`), which has no limit.
     console.error(`[ws] ${msg}`);
-    server.close(1011, msg);
+    // A WebSocket close reason is capped at 123 BYTES by the protocol. Exceeding
+    // it produces an invalid frame, so the browser sees an abnormal 1006 close
+    // with no reason at all instead of the explanation — worse than saying less.
+    server.close(1011, truncateCloseReason(msg));
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -243,6 +258,19 @@ function filterRequestHeaders(headers: Headers): Headers {
     if (allowed.has(k.toLowerCase())) out.set(k, v);
   }
   return out;
+}
+
+/**
+ * Clamp a WebSocket close reason to the protocol's 123-byte limit.
+ * Counts UTF-8 bytes, not characters, and trims to a whole character so a
+ * multi-byte sequence can't be cut in half.
+ */
+function truncateCloseReason(reason: string): string {
+  const enc = new TextEncoder();
+  if (enc.encode(reason).length <= 123) return reason;
+  let out = reason;
+  while (enc.encode(out + '…').length > 123) out = out.slice(0, -1);
+  return out + '…';
 }
 
 function jsonError(message: string, status: number): Response {

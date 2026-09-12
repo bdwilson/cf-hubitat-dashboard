@@ -99,6 +99,21 @@ Browser side (`index.html`): `connectWebSocket()` opens the socket on boot (afte
 
 Mechanically: `pollTick()` is the interval callback (not `refreshAll` directly). Each tick re-checks socket health via `wsIsLive()` (`readyState === OPEN`, not "did we see an `open` event"), tears down and reconnects a socket that died without closing — throttled to `WS_RECONNECT_MS` so a hub refusing the eventsocket isn't hammered once per tick — and guards against overlapping `/devices/all` calls with `pollInFlight` so a slow hub can't pile up requests. The `#ws-dot` tooltip (`updateWsDotTitle()`) reports transport, poll interval, and last-data/last-event ages, so a stale dashboard can be diagnosed by hovering instead of opening a console.
 
+**Outbound hub socket: always `fetch()` + `Upgrade`, never `new WebSocket()`.** Both work in Workers, but only `fetch()` exposes the upstream HTTP response when the hub *refuses* the upgrade — `new WebSocket()` emits an opaque error event, which surfaced as a bare "Hub WebSocket error" with no way to distinguish a down hub from a tunnel sitting behind CF Access. `fetch()` is also the only one that can attach the CF Access service-token headers. `redirect: 'manual'` is required, or an Access login redirect gets followed into an HTML login page and reads as a generic failure instead of a 302. When the upgrade is refused with a 301/302/403 and no service-token secrets are set, the error names CF Access and the fix explicitly — that's by far the most common cause of "real-time updates never work on my tunnel."
+
+**Gotcha: a WebSocket close reason is capped at 123 *bytes* by the protocol.** Exceeding it produces an invalid frame, so the browser gets an abnormal 1006 close with *no* reason at all — strictly worse than saying less. `truncateCloseReason()` clamps by UTF-8 byte length (trimming to a whole character so a multi-byte sequence can't be split); the full message still goes to `console.error` for `wrangler tail`. This bit once, when the CF Access hint above pushed the reason to 126 bytes.
+
+**Tunnel verification matrix** (fake hub + real Worker over `wrangler dev`; scripts are throwaway, not in the repo). This is the configuration the maintainer actually runs — a Cloudflare Tunnel, not the cloud URL:
+
+| Hub setup | Worker `CF_ACCESS_*` secrets | Result |
+|---|---|---|
+| Tunnel, no CF Access | set or unset | **PASS** — event delivered end-to-end in ~410ms |
+| Tunnel behind CF Access | set | **PASS** — ~420ms |
+| Tunnel behind CF Access | unset | Clean `1011` naming CF Access → browser falls back to polling |
+| Hub unreachable | n/a | Clean `1011` → polling |
+
+The key point for debugging a live install: **a tunnel behind CF Access with no service-token secrets can never get real-time push.** It fails cleanly and silently drops to `pollSec` polling — which is now actually reliable, but is not push.
+
 ### Optimistic tile updates + visibility-triggered catch-up
 Tapping a switch/lock/garage/valve (direct-toggle path, not the timer/picker flows) patches the tapped device's attribute in the local `devices` array and re-renders immediately via `applyDeviceAttrUpdate(deviceId, attrName, value)` — *before* `sendCommand()` is awaited — so the tile flips state instantly instead of waiting on a full network round-trip. The existing `setTimeout(refreshAll, 400)` afterward reconciles with the hub's real state either way; on a command failure the `catch` block does the same corrective `refreshAll` (before `flashErr`, not after — see gotcha below) so a wrong optimistic flip doesn't linger. `applyDeviceAttrUpdate()` is shared with `handleHubEvent()` (real WebSocket events use the same patch-and-rerender path), defined once and used by all three tile-click handlers (`onTileClick`, `onDynTileClick`, `onCustomTileClick`).
 
