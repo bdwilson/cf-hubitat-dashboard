@@ -237,10 +237,18 @@
   }
   .col { display: flex; flex-direction: column; gap: var(--gap); }
 
-  /* Dynamic / custom dashboard grid */
+  /* Dynamic / custom dashboard grid.
+     Uses --grid-cols like .section does, rather than the auto-fill it used to
+     use. Auto-fill made the "Grid columns" setting a no-op here — at 1280px it
+     produced nine ~130px tracks no matter what the setting said — and left the
+     real column count depending on window width, so a tile set to "2 columns"
+     covered a different fraction of the screen on every device. It also broke
+     drag-resize, which computed a column as offsetWidth/3.
+     minmax(0, 1fr) rather than 1fr so a long label cannot push a track wider
+     than its share. */
   .dyn-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    grid-template-columns: repeat(var(--grid-cols, 3), minmax(0, 1fr));
     grid-auto-rows: var(--row-h, 80px);
     grid-auto-flow: dense;
     gap: var(--gap); margin-bottom: var(--gap);
@@ -363,8 +371,14 @@
     border-bottom-right-radius: var(--radius);
     z-index: 2;
   }
-  body.edit-mode .tile .resize-handle { display: block; }
-  body.edit-mode .image-tile .resize-handle { display: block; z-index: 3; }
+  /* Only where a span can actually take effect: the .section grids and the
+     custom-dashboard grid. #right-col is flex and #cameras is flex until a wide
+     breakpoint, so a handle there is an affordance for something that cannot
+     happen — see bindResizeHandle(). */
+  body.edit-mode .section > .tile .resize-handle,
+  body.edit-mode #custom-grid > .tile .resize-handle { display: block; }
+  body.edit-mode .section > .image-tile .resize-handle,
+  body.edit-mode #custom-grid > .image-tile .resize-handle { display: block; z-index: 3; }
   /* Drag handle needs z-index + contrast inside image tiles */
   .image-tile .tile-drag-handle { z-index: 3; background: rgba(0,0,0,0.55); color: #ccc; border-radius: 2px; padding: 1px 3px; }
 
@@ -378,23 +392,41 @@
     cursor: default;
   }
 
-  /* Column/row span — section tiles use CSS-unit values (2× user columns) */
-  .section > [data-col="1"]  { grid-column: span 1; }  /* ½ user col  */
-  .section > [data-col="4"]  { grid-column: span 4; }  /* 2 user cols */
-  .section > [data-col="6"]  { grid-column: span 6; }  /* 3 user cols */
+  /* Column span — section tiles carry CSS-unit values (2× user columns).
+     Every value up to 12 is listed because "Grid columns" goes to 6, and a
+     span with no matching rule silently falls back to the 2-unit default —
+     which is how "Full row" used to do nothing above 3 columns. */
+  .section > [data-col="1"]  { grid-column: span 1; }   /* ½ user col */
+  .section > [data-col="3"]  { grid-column: span 3; }
+  .section > [data-col="4"]  { grid-column: span 4; }   /* 2 user cols */
+  .section > [data-col="5"]  { grid-column: span 5; }
+  .section > [data-col="6"]  { grid-column: span 6; }   /* 3 user cols */
+  .section > [data-col="7"]  { grid-column: span 7; }
+  .section > [data-col="8"]  { grid-column: span 8; }   /* 4 user cols */
+  .section > [data-col="9"]  { grid-column: span 9; }
+  .section > [data-col="10"] { grid-column: span 10; }  /* 5 user cols */
+  .section > [data-col="11"] { grid-column: span 11; }
+  .section > [data-col="12"] { grid-column: span 12; }  /* 6 user cols */
   /* Half-width tiles get smaller text so they don't overflow */
   .section > [data-col="1"] .tile-label { font-size: clamp(7px, calc(var(--row-h, 80px) * 0.13), 12px); }
   .section > [data-col="1"] .tile-value { font-size: clamp(8px, calc(var(--row-h, 80px) * 0.15), 13px); }
-  /* Custom/dynamic grids use 1:1 user-column spans */
+  /* Custom/dynamic grids use 1:1 user-column spans (no half track exists
+     there, so no "1" rule — see syncTileEditorVisibility). */
   #custom-grid > [data-col="2"] { grid-column: span 2; }
   #custom-grid > [data-col="3"] { grid-column: span 3; }
+  #custom-grid > [data-col="4"] { grid-column: span 4; }
+  #custom-grid > [data-col="5"] { grid-column: span 5; }
+  #custom-grid > [data-col="6"] { grid-column: span 6; }
   /* Row span — same semantics everywhere */
   .tile[data-row="2"],       .image-tile[data-row="2"]  { grid-row: span 2; }
   .tile[data-row="3"],       .image-tile[data-row="3"]  { grid-row: span 3; }
   .tile[data-row="4"],       .image-tile[data-row="4"]  { grid-row: span 4; }
-  /* Custom grid col span for image tiles */
-  #custom-grid > .image-tile[data-col="2"] { grid-column: span 2; }
-  #custom-grid > .image-tile[data-col="3"] { grid-column: span 3; }
+  /* A row-spanned image must let the grid decide its height. .image-tile
+     otherwise carries aspect-ratio: 16/9, which would fight grid-row and win,
+     making a 2- or 3-row image identical to a 1-row one. #custom-grid already
+     unsets it wholesale for the same reason. */
+  .section > .image-tile[data-row],
+  .col .image-tile[data-row] { aspect-ratio: unset; }
 
   /* Add-tile placeholder */
   .tile-add {
@@ -1269,15 +1301,17 @@ const DYNAMIC_GROUPS = [
 // ── Grid helpers ──────────────────────────────────────────────────────────────
 
 /**
- * Convert user-facing colSpan (0.5 | 1 | 2 | 3) to CSS grid span units.
+ * Convert user-facing colSpan (0.5 | 1 | 2 | 3 | …) to CSS grid span units.
  * The .section grid uses 2× the user column count internally, so:
- *   ½ col → span 1   |   1 col → span 2   |   2 cols → span 4   |   3 cols → span 6
+ *   ½ col → span 1   |   1 col → span 2   |   2 cols → span 4   |   N cols → span 2N
+ * Previously this hardcoded 0.5/2/3 and returned 2 for anything else, so a
+ * 4-, 5- or 6-column span silently rendered as one column.
  */
 function colToSpan(colSpan) {
   if (colSpan === 0.5) return 1;
-  if (colSpan === 2)   return 4;
-  if (colSpan === 3)   return 6;
-  return 2; // default: 1 user-column = 2 CSS units
+  const n = Number(colSpan);
+  if (!isFinite(n) || n < 1) return 2;
+  return Math.round(n) * 2;
 }
 
 /**
@@ -1285,9 +1319,30 @@ function colToSpan(colSpan) {
  */
 function spanToCol(cssSpan) {
   if (cssSpan === 1) return 0.5;
-  if (cssSpan === 4) return 2;
-  if (cssSpan === 6) return 3;
-  return 1;
+  const n = Number(cssSpan);
+  if (!isFinite(n) || n < 2) return 1;
+  return Math.round(n / 2);
+}
+
+/**
+ * How many columns a grid element actually has, read from the rendered grid.
+ *
+ * Deriving it rather than assuming is the point: the custom/dynamic resize
+ * handler used to compute a column as `offsetWidth / 3` while the grid was
+ * really `auto-fill minmax(130px, 1fr)` — nine tracks at 1280px, not three —
+ * so a drag needed about four times the expected travel and its snap points
+ * lined up with nothing. Reading the computed value cannot drift from the CSS.
+ */
+function gridColumnCount(gridEl, fallback) {
+  if (!gridEl) return fallback;
+  const cols = getComputedStyle(gridEl).gridTemplateColumns;
+  if (!cols || cols === 'none') return fallback;
+  // A display:none grid reports the SPECIFIED value rather than resolved track
+  // sizes — "repeat(6, minmax(0, 1fr))" would count as a couple of tokens and
+  // silently pass for a real column count. Only a resolved list is usable.
+  if (cols.includes('repeat(') || cols.includes('auto-fill') || cols.includes('auto-fit')) return fallback;
+  const n = cols.trim().split(/\s+/).length;
+  return n > 0 ? n : fallback;
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -1939,6 +1994,19 @@ window.addEventListener('hashchange', () => {
 
 // ── Nav chips ─────────────────────────────────────────────────────────────────
 
+// Does this auto-generated group currently match any device? Used to keep empty
+// groups out of the nav bar. Derived from `devices` on every render rather than
+// stored, so it self-corrects as devices are added or reclassified — note that
+// `devices` is empty until refreshDevices() returns, which is why boot() calls
+// updateNavChips() again afterwards.
+function dynamicGroupHasDevices(key) {
+  const group = DYNAMIC_GROUPS.find(g => g.key === key);
+  if (!group) return false;
+  // Not .some(group.match) — some() passes (value, index, array) and a stray
+  // index argument is exactly the kind of thing that silently changes a match.
+  return devices.some(d => group.match(d));
+}
+
 function updateNavChips() {
   const nav = document.getElementById('dash-nav');
   const chips = [];
@@ -1951,12 +2019,17 @@ function updateNavChips() {
       ({ key: 'custom/' + name, label: dash.title || name, kind: 'custom', viewPath: 'custom/' + name }))
   ];
 
-  // Initialize defaults if empty (first load).
-  // Dynamic dashboards are opt-in; main and custom dashboards start visible.
+  // Initialize defaults if empty (first load, or after Reset Everything).
+  // EVERYTHING starts visible, dynamic groups included. They used to default to
+  // hidden ("opt-in"), which meant a fresh or wiped config showed only Main and
+  // the "auto-generated dashboards" settings box came up unchecked — so the
+  // groups the dashboard generates for you were invisible until you went
+  // looking for a checkbox you had no reason to know existed. Empty groups are
+  // handled at render time below, not by hiding all of them up front.
   if (!dashboardsOrder.length) {
     dashboardsOrder = allDashboards.map(d => d.key);
     dashboardsVisible = {};
-    allDashboards.forEach(d => { dashboardsVisible[d.key] = d.kind !== 'dynamic'; });
+    allDashboards.forEach(d => { dashboardsVisible[d.key] = true; });
   }
 
   // Add new dashboards to the order list if they don't exist
@@ -1972,6 +2045,15 @@ function updateNavChips() {
     if (dashboardsVisible[key] === false) continue; // Skip hidden dashboards
     const dashboard = allDashboards.find(d => d.key === key);
     if (!dashboard) continue; // Skip if dashboard not found (e.g., deleted custom dashboard)
+
+    // A dynamic group with no matching devices would be a chip leading to an
+    // empty dashboard — "Shades" on a hub with no shades. Now that these
+    // default to visible, filter the empty ones HERE rather than persisting
+    // them as hidden: this is derived from the current device list, so a group
+    // appears by itself when a matching device shows up and never leaves a
+    // stale `false` in config that would keep it hidden afterwards. The
+    // Dashboard Manager still lists every group, so they stay toggleable.
+    if (dashboard.kind === 'dynamic' && !dynamicGroupHasDevices(key)) continue;
 
     const isActive = currentView === dashboard.viewPath;
     const cls = `nav-chip ${dashboard.kind}${isActive ? ' active' : ''}`;
@@ -2041,7 +2123,12 @@ function slotHtml(slotId, sectionId) {
 
   if (s.kind === 'image') {
     const orient = s.imageOrientation === 'portrait' ? ' portrait' : '';
-    return `<div class="image-tile${orient}" data-slot="${slotId}" data-section="${sectionId}"${colAttr}>
+    // rowAttr belongs here too. It was computed above and then only used by the
+    // regular-tile branch below, so an image tile's rowSpan was stored in config
+    // and never reached the DOM — a 3-row camera rendered identically to a
+    // 1-row one. The CSS has always had .image-tile[data-row=…] rules, and the
+    // custom-dashboard renderer has always emitted both attributes.
+    return `<div class="image-tile${orient}" data-slot="${slotId}" data-section="${sectionId}"${colAttr}${rowAttr}>
       <div class="image-empty">${escapeHtml(s.label || slotId)}</div>
       <span class="image-edit" data-edit="${slotId}">⋮</span>
       <div class="resize-handle" data-resize="${slotId}"></div>
@@ -2117,10 +2204,20 @@ function renderTile(slotId, force) {
           const lbl = el.querySelector('.image-label');
           if (lbl) lbl.textContent = s.label || '';
         } else {
+          // The resize handle must be re-emitted here. slotHtml() puts one in
+          // the shell, but this innerHTML replaces the shell's children on the
+          // first render that has an image to show — so the handle vanished
+          // before the user ever saw it, and image tiles could not be resized
+          // at all even where the grid supports it.
           el.innerHTML = `
             <img src="${escapeHtml(busted)}" alt="">
             <span class="image-label">${escapeHtml(s.label || '')}</span>
-            <span class="image-edit" data-edit="${slotId}">⋮</span>`;
+            <span class="image-edit" data-edit="${slotId}">⋮</span>
+            <div class="resize-handle" data-resize="${slotId}"></div>`;
+          // Replacing innerHTML discarded the handle buildLayout() had bound,
+          // so the new one needs its listener. (bindResizeHandle no-ops outside
+          // a .section, which is what keeps camera tiles handle-free.)
+          bindResizeHandle(el, slotId);
         }
       }
       const imgEl = el.querySelector('img');
@@ -2128,7 +2225,9 @@ function renderTile(slotId, force) {
     } else {
       el.innerHTML = `
         <div class="image-empty">${escapeHtml(s.label || slotId)} (unmapped)</div>
-        <span class="image-edit" data-edit="${slotId}">⋮</span>`;
+        <span class="image-edit" data-edit="${slotId}">⋮</span>
+        <div class="resize-handle" data-resize="${slotId}"></div>`;
+      bindResizeHandle(el, slotId);
     }
     return;
   }
@@ -3080,20 +3179,37 @@ function bindResizeHandle(tileEl, slotId) {
   const handle = tileEl.querySelector('.resize-handle');
   if (!handle) return;
 
+  // Only `.section` grids can express colSpan/rowSpan, so only they get a
+  // working handle. #right-col is a flex column, where grid-column/grid-row are
+  // inert; #cameras is flex too until a wide breakpoint turns it into a fixed
+  // 2-3 column grid, and either way the span rules are written `.section >
+  // [data-col=…]` so its children never match them.
+  //
+  // This used to be bound to every [data-slot] regardless. Dragging a
+  // right-column or camera tile changed nothing on screen — measured identical
+  // before and after — while still writing colSpan/rowSpan into config. The
+  // damage was deferred rather than absent: the tile kept those values, so
+  // moving it into a real section later made it jump to that size for no
+  // reason the user could connect to anything they had done.
+  if (!tileEl.parentElement || !tileEl.parentElement.classList.contains('section')) return;
+
   handle.addEventListener('pointerdown', e => {
     if (!editMode) return;
     e.stopPropagation(); e.preventDefault();
     handle.setPointerCapture(e.pointerId);
 
     const sectionEl = tileEl.parentElement;
-    const userCols = cfg.gridCols || 3;
     const rowH = parseFloat(getComputedStyle(document.documentElement)
       .getPropertyValue('--row-h')) || 80;
     const gap = parseFloat(getComputedStyle(document.documentElement)
       .getPropertyValue('--gap')) || 6;
 
+    // Read the real track count off the grid rather than trusting cfg.gridCols
+    // — they should agree, but only one of them is what the user is dragging in.
+    const cssColCount = gridColumnCount(sectionEl, (cfg.gridCols || 3) * 2);
+    const userCols = Math.max(1, Math.floor(cssColCount / 2));
+
     // Width of 1 user-column (= 2 internal CSS units + gap between them)
-    const cssColCount = userCols * 2;
     const cssUnitW = sectionEl
       ? (sectionEl.offsetWidth - gap * (cssColCount - 1)) / cssColCount
       : 50;
@@ -3102,8 +3218,11 @@ function bindResizeHandle(tileEl, slotId) {
     const startX = e.clientX, startY = e.clientY;
     const startW = tileEl.offsetWidth, startH = tileEl.offsetHeight;
 
-    // Valid user-column snapping values (0.5, 1, 2, 3 — capped at userCols)
-    const validCols = [0.5, 1, 2, 3].filter(c => c <= userCols);
+    // Every whole column up to the grid's width, plus ½. This used to be the
+    // fixed list [0.5,1,2,3], so at 4+ columns a tile could never be dragged
+    // wider than three — there was no way to reach full width by drag or menu.
+    const validCols = [0.5];
+    for (let c = 1; c <= userCols; c++) validCols.push(c);
 
     let snapCol = cfg.slots[slotId]?.colSpan ?? 1;
     let snapRow = cfg.slots[slotId]?.rowSpan ?? 1;
@@ -3765,9 +3884,14 @@ function bindCustomResizeHandle(el, dashName, slotId) {
 
     const dash = customDashboards[dashName];
     const gridEl = document.getElementById('custom-grid');
-    const gridCols = (dash && dash.gridCols) || 3;
     const gap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--gap')) || 6;
     const rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-h')) || 80;
+    // Read the real track count. This was `(dash && dash.gridCols) || 3` — a
+    // per-dashboard field nothing ever sets, so it was always 3, while the grid
+    // was auto-fill and actually had nine tracks at desktop width. A column came
+    // out ~415px instead of ~131px, so a drag needed roughly 500px of travel to
+    // advance one step and never lined up with a real track boundary.
+    const gridCols = gridColumnCount(gridEl, (dash && dash.gridCols) || cfg.gridCols || 3);
     const colW = gridEl ? (gridEl.offsetWidth - gap * (gridCols - 1)) / gridCols : 130;
     const colWithGap = colW + gap;
 
@@ -3777,7 +3901,8 @@ function bindCustomResizeHandle(el, dashName, slotId) {
     const tile = dash && dash.tiles.find(t => t.slotId === slotId);
     let snapCol = (tile && tile.colSpan) || 1;
     let snapRow = (tile && tile.rowSpan) || 1;
-    const validCols = [1, 2, 3].filter(c => c <= gridCols);
+    const validCols = [];
+    for (let c = 1; c <= gridCols; c++) validCols.push(c);
 
     function onMove(ev) {
       const dw = ev.clientX - startX;
@@ -4220,6 +4345,46 @@ const ICON_STATE_LABELS = {
   shade:  ['Open icon', 'Closed icon'],
 };
 
+/**
+ * Rebuild the "Tile width" menu to match the grid the tile actually lives in,
+ * preserving the current selection where it is still offered.
+ *
+ * The options used to be static markup: ½, 1, 2, "Full row (3 columns)". Two
+ * things were wrong with that. "Full row (3 columns)" is only a full row when
+ * Grid columns is 3 — at 6 it covered half the row, measured 623px of 1256px —
+ * and there was no option beyond 3 at all, so a 4-, 5- or 6-column dashboard
+ * had no way to make a tile full width by menu or by drag.
+ *
+ * ½ is main-dashboard only: sections run an internal 2x grid (colToSpan)
+ * precisely so a tile can span one half column, while custom dashboards are 1:1
+ * and CSS cannot span half a track. It used to be offered for custom tiles and
+ * then dropped on save (`if (cs > 1)` deletes 0.5), so picking it appeared to
+ * do nothing and reverted to Normal next time the editor opened.
+ */
+function buildColSpanOptions() {
+  const sel = document.getElementById('te-col-span');
+  if (!sel) return;
+  const cols = Math.max(1, Math.min(6, parseInt(cfg.gridCols, 10) || 3));
+  const previous = sel.value;
+
+  const opts = [];
+  if (!editingCustom) opts.push({ v: '0.5', t: 'Half (½ column)' });
+  for (let c = 1; c <= cols; c++) {
+    opts.push({
+      v: String(c),
+      t: c === 1 ? 'Normal (1 column)'
+        : c === cols ? `Full row (${c} columns)`
+        : `${c} columns`,
+    });
+  }
+
+  sel.innerHTML = opts.map(o => `<option value="${o.v}">${escapeHtml(o.t)}</option>`).join('');
+  // Keep the current value if it still exists; otherwise fall back to 1 rather
+  // than leaving the select blank (an older config may hold 0.5 on a custom
+  // tile, or a span wider than the grid was later narrowed to).
+  sel.value = opts.some(o => o.v === previous) ? previous : '1';
+}
+
 function syncTileEditorVisibility() {
   const kind = document.getElementById('te-kind').value;
   const isSpacer = kind === 'spacer';
@@ -4234,7 +4399,13 @@ function syncTileEditorVisibility() {
   document.getElementById('te-valve-cmd-row').style.display   = kind === 'valve' ? '' : 'none';
   document.getElementById('te-orient-row').style.display   = kind === 'image'          ? '' : 'none';
   document.getElementById('te-fit-row').style.display      = kind === 'image'          ? '' : 'none';
-  document.getElementById('te-row-span-row').style.display = kind !== 'image'          ? '' : 'none';
+  // Row height is offered for images too now. It was hidden for them because
+  // main-dashboard image tiles ignored rowSpan (slotHtml dropped the attribute,
+  // and aspect-ratio: 16/9 would have overridden grid-row anyway); both are
+  // fixed, and custom-dashboard image tiles always honoured it.
+  document.getElementById('te-row-span-row').style.display = '';
+
+  buildColSpanOptions();
 
   const iconEligible = ICON_ELIGIBLE_KINDS.includes(kind);
   const stateLabels = ICON_STATE_LABELS[kind];
@@ -4385,6 +4556,11 @@ document.getElementById('te-save').addEventListener('click', () => {
         tile.closeCommand = vClose || undefined;
         const cs = parseFloat(document.getElementById('te-col-span').value) || 1;
         const rs = parseInt(document.getElementById('te-row-span').value, 10) || 1;
+        // `> 1` rather than `!== 1` on purpose: custom grids have no half-column
+        // track, and the editor no longer offers ½ here, so a 0.5 arriving from
+        // an older config is normalised away instead of being stored and then
+        // ignored at render time. (The main dashboard, which can express ½,
+        // keeps its own `=== 1` check.)
         if (cs > 1) tile.colSpan = cs; else delete tile.colSpan;
         if (rs > 1) tile.rowSpan = rs; else delete tile.rowSpan;
         const icon = document.getElementById('te-icon').value;
@@ -5149,11 +5325,13 @@ function renderDashboardManager() {
       ({ key: 'custom/' + name, label: dash.title || name, kind: 'custom' }))
   ];
 
-  // Initialize if empty. Dynamic dashboards are opt-in; main/custom start visible.
+  // Initialize if empty — everything visible, dynamic groups included. Must
+  // match the same block in updateNavChips(); these two are the only places a
+  // fresh config's visibility defaults get written.
   if (!dashboardsOrder.length) {
     dashboardsOrder = allDashboards.map(d => d.key);
     dashboardsVisible = {};
-    allDashboards.forEach(d => { dashboardsVisible[d.key] = d.kind !== 'dynamic'; });
+    allDashboards.forEach(d => { dashboardsVisible[d.key] = true; });
   }
 
   // Render draggable items for each dashboard
@@ -5430,6 +5608,12 @@ async function boot() {
   } else {
     await refreshDevices();
     renderAll();
+    // Nav chips must be rebuilt AFTER devices land: dynamic groups are filtered
+    // out of the bar while they have no matching devices, and both calls above
+    // ran against an empty `devices`. Without this, every auto-generated
+    // dashboard stays missing from the nav until some unrelated event
+    // (a hashchange, opening settings) happens to re-render it.
+    updateNavChips();
     updateStatusBar();
     // Try WebSocket first; fall back to polling on close/error
     connectWebSocket();
