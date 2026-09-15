@@ -1939,6 +1939,19 @@ window.addEventListener('hashchange', () => {
 
 // ── Nav chips ─────────────────────────────────────────────────────────────────
 
+// Does this auto-generated group currently match any device? Used to keep empty
+// groups out of the nav bar. Derived from `devices` on every render rather than
+// stored, so it self-corrects as devices are added or reclassified — note that
+// `devices` is empty until refreshDevices() returns, which is why boot() calls
+// updateNavChips() again afterwards.
+function dynamicGroupHasDevices(key) {
+  const group = DYNAMIC_GROUPS.find(g => g.key === key);
+  if (!group) return false;
+  // Not .some(group.match) — some() passes (value, index, array) and a stray
+  // index argument is exactly the kind of thing that silently changes a match.
+  return devices.some(d => group.match(d));
+}
+
 function updateNavChips() {
   const nav = document.getElementById('dash-nav');
   const chips = [];
@@ -1951,12 +1964,17 @@ function updateNavChips() {
       ({ key: 'custom/' + name, label: dash.title || name, kind: 'custom', viewPath: 'custom/' + name }))
   ];
 
-  // Initialize defaults if empty (first load).
-  // Dynamic dashboards are opt-in; main and custom dashboards start visible.
+  // Initialize defaults if empty (first load, or after Reset Everything).
+  // EVERYTHING starts visible, dynamic groups included. They used to default to
+  // hidden ("opt-in"), which meant a fresh or wiped config showed only Main and
+  // the "auto-generated dashboards" settings box came up unchecked — so the
+  // groups the dashboard generates for you were invisible until you went
+  // looking for a checkbox you had no reason to know existed. Empty groups are
+  // handled at render time below, not by hiding all of them up front.
   if (!dashboardsOrder.length) {
     dashboardsOrder = allDashboards.map(d => d.key);
     dashboardsVisible = {};
-    allDashboards.forEach(d => { dashboardsVisible[d.key] = d.kind !== 'dynamic'; });
+    allDashboards.forEach(d => { dashboardsVisible[d.key] = true; });
   }
 
   // Add new dashboards to the order list if they don't exist
@@ -1972,6 +1990,15 @@ function updateNavChips() {
     if (dashboardsVisible[key] === false) continue; // Skip hidden dashboards
     const dashboard = allDashboards.find(d => d.key === key);
     if (!dashboard) continue; // Skip if dashboard not found (e.g., deleted custom dashboard)
+
+    // A dynamic group with no matching devices would be a chip leading to an
+    // empty dashboard — "Shades" on a hub with no shades. Now that these
+    // default to visible, filter the empty ones HERE rather than persisting
+    // them as hidden: this is derived from the current device list, so a group
+    // appears by itself when a matching device shows up and never leaves a
+    // stale `false` in config that would keep it hidden afterwards. The
+    // Dashboard Manager still lists every group, so they stay toggleable.
+    if (dashboard.kind === 'dynamic' && !dynamicGroupHasDevices(key)) continue;
 
     const isActive = currentView === dashboard.viewPath;
     const cls = `nav-chip ${dashboard.kind}${isActive ? ' active' : ''}`;
@@ -5149,11 +5176,13 @@ function renderDashboardManager() {
       ({ key: 'custom/' + name, label: dash.title || name, kind: 'custom' }))
   ];
 
-  // Initialize if empty. Dynamic dashboards are opt-in; main/custom start visible.
+  // Initialize if empty — everything visible, dynamic groups included. Must
+  // match the same block in updateNavChips(); these two are the only places a
+  // fresh config's visibility defaults get written.
   if (!dashboardsOrder.length) {
     dashboardsOrder = allDashboards.map(d => d.key);
     dashboardsVisible = {};
-    allDashboards.forEach(d => { dashboardsVisible[d.key] = d.kind !== 'dynamic'; });
+    allDashboards.forEach(d => { dashboardsVisible[d.key] = true; });
   }
 
   // Render draggable items for each dashboard
@@ -5430,6 +5459,12 @@ async function boot() {
   } else {
     await refreshDevices();
     renderAll();
+    // Nav chips must be rebuilt AFTER devices land: dynamic groups are filtered
+    // out of the bar while they have no matching devices, and both calls above
+    // ran against an empty `devices`. Without this, every auto-generated
+    // dashboard stays missing from the nav until some unrelated event
+    // (a hashchange, opening settings) happens to re-render it.
+    updateNavChips();
     updateStatusBar();
     // Try WebSocket first; fall back to polling on close/error
     connectWebSocket();
