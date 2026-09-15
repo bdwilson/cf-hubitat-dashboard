@@ -180,6 +180,21 @@ async function loadDashboardConfig(env: Env, hubId: string): Promise<DashboardCo
     layout: raw.layout,
     gridCols: raw.gridCols,
     tileH: raw.tileH,
+    // These five are declared on DashboardConfig but were missing from this
+    // whitelist (and from the merge in putConfig), so they were dropped on
+    // every read AND every write. The effect was that icon scale, the hub link
+    // and — most visibly — the two chip accent colours and the light/dark theme
+    // existed only in whichever browser set them: they never synced to another
+    // device, and `Download Config` exports what the SERVER returns, so they
+    // were absent from every exported file too. Uploading such a file into the
+    // on-hub build therefore could not carry colours or theme across, which is
+    // how this was noticed. The Groovy app has always stored all five.
+    // Keep this list in step with DashboardConfig in types.ts.
+    iconScale: raw.iconScale,
+    hubExternalUrl: raw.hubExternalUrl,
+    chipAccent: raw.chipAccent,
+    chipAccentDynamic: raw.chipAccentDynamic,
+    theme: raw.theme,
   };
 }
 
@@ -330,6 +345,15 @@ async function putConfig(req: Request, env: Env, hubId: string): Promise<Respons
       layout: isObject(d.layout) ? (d.layout as Record<string, string[]>) : existing.layout,
       gridCols: typeof d.gridCols === 'number' ? d.gridCols : existing.gridCols,
       tileH: typeof d.tileH === 'number' ? d.tileH : existing.tileH,
+      // Same five fields the read path was dropping — see loadDashboardConfig().
+      // Without these, "Save Config to KV" silently discarded the chip colours,
+      // the theme, the icon scale and the hub link every time it ran.
+      iconScale: typeof d.iconScale === 'number' ? d.iconScale : existing.iconScale,
+      hubExternalUrl: typeof d.hubExternalUrl === 'string' ? d.hubExternalUrl : existing.hubExternalUrl,
+      chipAccent: typeof d.chipAccent === 'string' ? d.chipAccent : existing.chipAccent,
+      chipAccentDynamic:
+        typeof d.chipAccentDynamic === 'string' ? d.chipAccentDynamic : existing.chipAccentDynamic,
+      theme: typeof d.theme === 'string' ? (d.theme as DashboardConfig['theme']) : existing.theme,
     };
     writes.push(env.CONFIG.put(hubKey(hubId, KV_DASHBOARD), JSON.stringify(merged)));
   }
