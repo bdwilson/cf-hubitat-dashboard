@@ -363,8 +363,14 @@
     border-bottom-right-radius: var(--radius);
     z-index: 2;
   }
-  body.edit-mode .tile .resize-handle { display: block; }
-  body.edit-mode .image-tile .resize-handle { display: block; z-index: 3; }
+  /* Only where a span can actually take effect: the .section grids and the
+     custom-dashboard grid. #right-col is flex and #cameras is flex until a wide
+     breakpoint, so a handle there is an affordance for something that cannot
+     happen — see bindResizeHandle(). */
+  body.edit-mode .section > .tile .resize-handle,
+  body.edit-mode #custom-grid > .tile .resize-handle { display: block; }
+  body.edit-mode .section > .image-tile .resize-handle,
+  body.edit-mode #custom-grid > .image-tile .resize-handle { display: block; z-index: 3; }
   /* Drag handle needs z-index + contrast inside image tiles */
   .image-tile .tile-drag-handle { z-index: 3; background: rgba(0,0,0,0.55); color: #ccc; border-radius: 2px; padding: 1px 3px; }
 
@@ -3107,6 +3113,20 @@ function bindResizeHandle(tileEl, slotId) {
   const handle = tileEl.querySelector('.resize-handle');
   if (!handle) return;
 
+  // Only `.section` grids can express colSpan/rowSpan, so only they get a
+  // working handle. #right-col is a flex column, where grid-column/grid-row are
+  // inert; #cameras is flex too until a wide breakpoint turns it into a fixed
+  // 2-3 column grid, and either way the span rules are written `.section >
+  // [data-col=…]` so its children never match them.
+  //
+  // This used to be bound to every [data-slot] regardless. Dragging a
+  // right-column or camera tile changed nothing on screen — measured identical
+  // before and after — while still writing colSpan/rowSpan into config. The
+  // damage was deferred rather than absent: the tile kept those values, so
+  // moving it into a real section later made it jump to that size for no
+  // reason the user could connect to anything they had done.
+  if (!tileEl.parentElement || !tileEl.parentElement.classList.contains('section')) return;
+
   handle.addEventListener('pointerdown', e => {
     if (!editMode) return;
     e.stopPropagation(); e.preventDefault();
@@ -4263,6 +4283,24 @@ function syncTileEditorVisibility() {
   document.getElementById('te-fit-row').style.display      = kind === 'image'          ? '' : 'none';
   document.getElementById('te-row-span-row').style.display = kind !== 'image'          ? '' : 'none';
 
+  // "Half (½ column)" only exists on the main dashboard. Its sections run an
+  // internal 2x grid (see colToSpan) precisely so a tile can span one half
+  // column; custom dashboards use a 1:1 auto-fill grid with no half track to
+  // span, and CSS cannot span half a track.
+  //
+  // The option used to be offered for custom tiles anyway and then thrown away
+  // on save — that path stores `if (cs > 1)`, so 0.5 was deleted rather than
+  // kept. Picking "Half" appeared to do nothing and silently reverted to
+  // "Normal" next time the editor opened. Hiding it makes the menu honest; the
+  // `cs > 1` save is then correct rather than lossy. Any 0.5 left in an older
+  // config is clamped to 1 here so the select cannot render blank.
+  const halfOption = document.querySelector('#te-col-span option[value="0.5"]');
+  if (halfOption) {
+    halfOption.hidden = !!editingCustom;
+    const colSel = document.getElementById('te-col-span');
+    if (editingCustom && colSel.value === '0.5') colSel.value = '1';
+  }
+
   const iconEligible = ICON_ELIGIBLE_KINDS.includes(kind);
   const stateLabels = ICON_STATE_LABELS[kind];
   document.getElementById('te-icon-row').style.display    = iconEligible ? '' : 'none';
@@ -4412,6 +4450,11 @@ document.getElementById('te-save').addEventListener('click', () => {
         tile.closeCommand = vClose || undefined;
         const cs = parseFloat(document.getElementById('te-col-span').value) || 1;
         const rs = parseInt(document.getElementById('te-row-span').value, 10) || 1;
+        // `> 1` rather than `!== 1` on purpose: custom grids have no half-column
+        // track, and the editor no longer offers ½ here, so a 0.5 arriving from
+        // an older config is normalised away instead of being stored and then
+        // ignored at render time. (The main dashboard, which can express ½,
+        // keeps its own `=== 1` check.)
         if (cs > 1) tile.colSpan = cs; else delete tile.colSpan;
         if (rs > 1) tile.rowSpan = rs; else delete tile.rowSpan;
         const icon = document.getElementById('te-icon').value;
